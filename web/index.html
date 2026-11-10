@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- ===== BRAND — link previews (WhatsApp, Facebook, Google) read these lines
+       directly, so they can't come from config.js. Edit here if the wording changes. ===== -->
+  <title>Dhyana Stays · Curated wellness stays in Auroville, Pondicherry &amp; beyond</title>
+  <meta name="description" content="Book handpicked retreats, spiritual sanctuaries and nature escapes with Dhyana Stays — rooted in Auroville, near Pondicherry, with stays in other quiet corners of India." />
+  <link rel="canonical" href="https://dhyanastays.com/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Dhyana Stays" />
+  <meta property="og:title" content="Dhyana Stays · Curated wellness stays" />
+  <meta property="og:description" content="Handpicked retreats and nature escapes — rooted in Auroville, near Pondicherry, and beyond. Book online." />
+  <meta property="og:url" content="https://dhyanastays.com/" />
+  <meta property="og:image" content="https://dhyanastays.com/images/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="en_IN" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#5C6544" />
+  <!-- ===== end BRAND ===== -->
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="apple-touch-icon" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="css/site.css" />
+  <!-- Starts the big top photo downloading straight away. Keep in step with hero.image in config.js. -->
+  <link rel="preload" as="image" href="images/hero.jpg" fetchpriority="high" />
+  <script src="config.js" defer></script>
+  <script src="js/common.js" defer></script>
+  <script src="js/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="nav" id="nav">
+    <a class="nav-brand" href="#top"><img class="brand-mark" alt="" width="36" height="36" /><span data-text="brand.name"></span></a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#stay">Stays</a>
+      <a href="#policies">Policies</a>
+      <a href="#contact">Contact</a>
+      <button type="button" class="btn btn-sm" data-action="book">Book now</button>
+    </nav>
+    <button type="button" class="hamburger" data-action="menu" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <div class="mobile-menu" id="mobile-menu" hidden>
+    <a href="#stay" data-action="menu-close">Stays</a>
+    <a href="#policies" data-action="menu-close">Policies</a>
+    <a href="#contact" data-action="menu-close">Contact</a>
+    <button type="button" class="btn btn-lg" data-action="book">Book now</button>
+  </div>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-shade"></div>
+      <div class="hero-inner">
+        <p class="eyebrow" data-text="hero.eyebrow"></p>
+        <h1 class="hero-title"><span data-text="hero.title"></span><br /><span class="accent" data-text="hero.titleAccent"></span></h1>
+        <p class="hero-text" data-text="hero.text"></p>
+        <div class="hero-ctas">
+          <button type="button" class="btn btn-lg" data-action="book">Reserve your stay</button>
+          <a class="btn btn-lg btn-ghost" href="#stay">See rooms ↓</a>
+        </div>
+      </div>
+    </section>
+
+    <ul class="highlights" id="highlights" aria-label="Highlights"></ul>
+
+    <section class="about">
+      <div class="about-media"><img id="about-img" alt="" loading="lazy" /></div>
+      <div class="about-text">
+        <p class="eyebrow" data-text="about.eyebrow"></p>
+        <h2 data-text="about.title"></h2>
+        <p data-text="about.body"></p>
+      </div>
+    </section>
+
+    <section class="section" id="stay">
+      <p class="eyebrow center">Where you'll rest</p>
+      <h2 class="section-title">Our stays</h2>
+      <div id="loc-tabs"></div>
+      <div id="loc-intro"></div>
+      <div class="rooms" id="rooms"><p class="rooms-msg">Loading stays…</p></div>
+    </section>
+
+    <section class="banner" id="banner">
+      <img id="banner-img" alt="" loading="lazy" />
+      <div class="banner-shade">
+        <p class="banner-quote" data-text="banner.quote"></p>
+        <button type="button" class="btn btn-lg btn-ghost" data-action="book">Book your stay</button>
+      </div>
+    </section>
+
+    <section class="section section-cream" id="policies">
+      <p class="eyebrow center">Good to know</p>
+      <h2 class="section-title">Stay policies</h2>
+      <div class="policy-grid">
+        <div class="card"><h3>Check-in &amp; check-out</h3><p id="pol-times"></p></div>
+        <div class="card"><h3>Cancellation</h3><p data-text="policies.cancellation"></p></div>
+        <div class="card"><h3>House rules</h3><ul id="pol-rules"></ul></div>
+      </div>
+    </section>
+
+    <section class="section" id="contact">
+      <p class="eyebrow center">Get in touch</p>
+      <h2 class="section-title">Find us</h2>
+      <div class="contact-grid" id="contact-grid"></div>
+      <div class="center"><button type="button" class="btn btn-lg" data-action="book">Book your stay</button></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="footer-name" data-text="brand.name"></p>
+    <p class="footer-line" id="footer-line"></p>
+    <p class="footer-line" data-text="footerNote"></p>
+    <a class="footer-admin" href="admin.html" rel="nofollow">Owner login</a>
+  </footer>
+
+  <!-- ================= BOOKING DIALOG ================= -->
+  <div class="modal" id="booking" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="bk-title">
+      <div class="modal-head">
+        <h2 id="bk-title">Reserve your stay</h2>
+        <button type="button" class="modal-close" data-action="close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modal-body" id="bk-form">
+        <div class="step-label">1 · Choose a room</div>
+        <div class="room-options" id="bk-rooms" role="radiogroup" aria-label="Room"></div>
+
+        <div class="step-label">2 · Choose your dates</div>
+        <div class="cal" id="bk-cal"></div>
+        <p class="cal-note" id="bk-cal-note" role="status" hidden></p>
+
+        <div class="steppers">
+          <div class="stepper-group" id="bk-units-group" hidden>
+            <span class="field-label">Rooms</span>
+            <div class="stepper">
+              <button type="button" data-action="units-" aria-label="Fewer rooms">−</button>
+              <output id="bk-units" aria-live="polite">1</output>
+              <button type="button" data-action="units+" aria-label="More rooms">+</button>
+            </div>
+            <small id="bk-units-note"></small>
+          </div>
+          <div class="stepper-group">
+            <span class="field-label">Guests</span>
+            <div class="stepper">
+              <button type="button" data-action="guests-" aria-label="Fewer guests">−</button>
+              <output id="bk-guests" aria-live="polite">2</output>
+              <button type="button" data-action="guests+" aria-label="More guests">+</button>
+            </div>
+            <small id="bk-guests-note"></small>
+          </div>
+        </div>
+
+        <div class="quote" id="bk-quote" aria-live="polite" hidden></div>
+
+        <div class="step-label">3 · Your details</div>
+        <label class="field"><span class="field-label">Full name</span>
+          <input id="bk-name" autocomplete="name" maxlength="100" required /></label>
+        <label class="field"><span class="field-label">Email</span>
+          <input id="bk-email" type="email" autocomplete="email" maxlength="254" required /></label>
+        <label class="field"><span class="field-label">Phone</span>
+          <input id="bk-phone" type="tel" autocomplete="tel" maxlength="20" placeholder="+91 98765 43210" required /></label>
+        <label class="field"><span class="field-label">Special requests <em>(optional)</em></span>
+          <textarea id="bk-requests" maxlength="1000" rows="2" placeholder="Dietary needs, arrival time, celebrations…"></textarea></label>
+        <!-- Honeypot: hidden from people, bots fill it in -->
+        <div class="hp" aria-hidden="true"><label>Company <input id="bk-company" tabindex="-1" autocomplete="off" /></label></div>
+        <div id="bk-captcha" class="captcha"></div>
+
+        <div class="form-error" id="bk-error" role="alert" hidden></div>
+        <div class="pay-buttons">
+          <button type="button" class="btn btn-full" id="bk-pay" data-action="pay-online" hidden>Pay online</button>
+          <button type="button" class="btn btn-full btn-secondary" id="bk-arrival" data-action="pay-arrival" hidden>Reserve · pay on arrival</button>
+          <button type="button" class="btn btn-full" id="bk-inquiry" data-action="inquiry" hidden>Send inquiry</button>
+        </div>
+        <p class="policy-note" id="bk-policy"></p>
+      </div>
+
+      <div class="modal-body done" id="bk-done" hidden></div>
+    </div>
+  </div>
+
+  <noscript><p class="noscript">Please turn on JavaScript to book online, or contact us directly.</p></noscript>
+</body>
+</html>

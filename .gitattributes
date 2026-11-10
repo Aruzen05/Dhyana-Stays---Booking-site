@@ -1,0 +1,9 @@
+# Store text files with LF line endings so they look the same on every computer.
+* text=auto eol=lf
+
+# Photos and other binary files: never touch.
+*.jpg  binary
+*.jpeg binary
+*.png  binary
+*.webp binary
+*.ico  binary

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Admin</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="css/admin.css" />
+  <script src="config.js" defer></script>
+  <script src="js/common.js" defer></script>
+  <script src="js/admin.js" defer></script>
+</head>
+<body>
+
+  <!-- ============ SIGN IN ============ -->
+  <section class="auth" id="auth" hidden>
+    <div class="auth-card">
+      <div class="auth-head">
+        <h1 data-brand></h1>
+        <p id="auth-sub">Owner dashboard</p>
+      </div>
+      <div class="auth-body">
+        <form id="f-login" class="stack" novalidate>
+          <label class="field"><span>Email</span><input id="login-email" type="email" autocomplete="username" required /></label>
+          <label class="field"><span>Password</span><input id="login-pw" type="password" autocomplete="current-password" required /></label>
+          <p class="msg msg-bad" id="login-err" role="alert" hidden></p>
+          <button class="btn btn-full" type="submit" id="login-btn">Log in</button>
+          <button class="link" type="button" data-action="show-forgot">Forgot password?</button>
+        </form>
+
+        <form id="f-forgot" class="stack" novalidate hidden>
+          <p class="hint">Enter your admin email. We'll send a link to set a new password.</p>
+          <label class="field"><span>Email</span><input id="forgot-email" type="email" autocomplete="username" required /></label>
+          <p class="msg" id="forgot-msg" role="status" hidden></p>
+          <button class="btn btn-full" type="submit" id="forgot-btn">Send reset link</button>
+          <button class="link" type="button" data-action="show-login">← Back to log in</button>
+        </form>
+
+        <form id="f-newpw" class="stack" novalidate hidden>
+          <p class="hint">Choose a new password (at least 10 characters).</p>
+          <label class="field"><span>New password</span><input id="new-pw" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <label class="field"><span>Repeat new password</span><input id="new-pw2" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <p class="msg" id="newpw-msg" role="status" hidden></p>
+          <button class="btn btn-full" type="submit" id="newpw-btn">Save new password</button>
+          <button class="link" type="button" data-action="cancel-newpw" id="newpw-cancel" hidden>Cancel</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DASHBOARD ============ -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div><div class="topbar-title" data-brand></div><div class="topbar-sub" id="who"></div></div>
+      <div class="topbar-actions">
+        <a class="btn btn-quiet btn-sm" href="index.html" target="_blank" rel="noopener">View site ↗</a>
+        <button class="btn btn-quiet btn-sm" type="button" data-action="change-pw">Change password</button>
+        <button class="btn btn-sm" type="button" data-action="logout">Log out</button>
+      </div>
+    </header>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" role="tab" data-tab="bookings">Bookings</button>
+      <button class="tab" role="tab" data-tab="rooms">Rooms</button>
+      <button class="tab" role="tab" data-tab="locations">Locations</button>
+      <button class="tab" role="tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <!-- BOOKINGS -->
+    <main class="panel" id="panel-bookings">
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <div class="chips" id="status-chips"></div>
+        <div class="toolbar-right">
+          <select id="loc-filter" aria-label="Location filter" hidden><option value="all">All locations</option></select>
+          <select id="pay-filter" aria-label="Payment filter">
+            <option value="all">All payments</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="refunded">Refunded</option>
+          </select>
+          <select id="sort" aria-label="Sort">
+            <option value="created">Newest first</option><option value="checkin">By check-in date</option>
+          </select>
+          <input id="search" type="search" placeholder="Search name, email, phone, ref…" aria-label="Search bookings" />
+          <button class="btn btn-sm" type="button" data-action="new-booking">+ Add booking</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-action="export">Export CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <p class="empty" id="bk-empty">Loading bookings…</p>
+        <table id="bk-table" hidden>
+          <thead><tr><th>Guest</th><th>Room</th><th>Stay</th><th>Guests</th><th>Status</th><th>Payment</th><th class="num">Total</th><th>Ref</th></tr></thead>
+          <tbody id="bk-rows"></tbody>
+        </table>
+      </div>
+      <div class="table-foot"><span id="bk-count"></span><button class="link" type="button" data-action="load-more" id="load-more" hidden>Load older bookings</button></div>
+    </main>
+
+    <!-- ROOMS -->
+    <main class="panel" id="panel-rooms" hidden>
+      <div class="panel-head">
+        <div><h2>Rooms</h2><p class="hint">What guests see and book. Changes are live as soon as you save.</p></div>
+        <button class="btn btn-sm" type="button" data-action="add-room">+ Add room</button>
+      </div>
+      <div id="rooms-list"><p class="empty">Loading…</p></div>
+    </main>
+
+    <!-- LOCATIONS -->
+    <main class="panel" id="panel-locations" hidden>
+      <div class="panel-head">
+        <div><h2>Locations</h2><p class="hint">Places where you offer stays. Each room belongs to one location. With two or more, guests can browse by location.</p></div>
+        <button class="btn btn-sm" type="button" data-action="add-location">+ Add location</button>
+      </div>
+      <div id="locations-list"><p class="empty">Loading…</p></div>
+    </main>
+
+    <!-- SETTINGS -->
+    <main class="panel" id="panel-settings" hidden>
+      <div class="panel-head"><div><h2>Settings</h2><p class="hint">Contact details, tax, invoices and booking rules. Changes are live as soon as you save.</p></div></div>
+      <form id="f-settings" class="card settings" novalidate>
+        <fieldset>
+          <legend>Contact details (shown on the website, invoices and emails)</legend>
+          <div class="grid2">
+            <label class="field"><span>Phone numbers — one per line</span><textarea name="contact_phones" rows="2" placeholder="+91 98400 36900"></textarea></label>
+            <label class="field"><span>Emails — one per line</span><textarea name="contact_emails" rows="2" placeholder="support@dhyanastays.com"></textarea></label>
+            <label class="field"><span>WhatsApp number</span><input name="contact_whatsapp" type="tel" maxlength="20" placeholder="+91 98400 36900" /></label>
+            <label class="field"><span>Support hours <em>(optional)</em></span><input name="contact_hours" maxlength="120" placeholder="Support every day, 24×7" /></label>
+          </div>
+          <label class="field"><span>Office address — one line per row</span><textarea name="contact_address" rows="2" placeholder="ECR Road, Auroville&#10;Near Pondicherry, Tamil Nadu"></textarea></label>
+          <label class="field"><span>Google Maps link <em>(optional, https://…)</em></span><input name="contact_map_url" type="url" maxlength="500" placeholder="https://maps.app.goo.gl/…" /></label>
+        </fieldset>
+        <fieldset>
+          <legend>Business &amp; GST</legend>
+          <label class="field"><span>Legal business name (on invoices)</span><input name="business_legal_name" maxlength="120" required /></label>
+          <label class="check"><input type="checkbox" name="gst_enabled" /> We are GST-registered — charge GST and issue tax invoices</label>
+          <label class="field"><span>GSTIN</span><input name="gstin" maxlength="15" placeholder="33ABCDE1234F1Z5" autocapitalize="characters" /></label>
+          <p class="hint">GST is worked out per room per night: up to ₹1,000 exempt · up to ₹7,500 5% · above ₹7,500 18% (rates from 22 Sep 2025). Confirm with your accountant. If you are not registered, leave GST off — you must not collect it. Stays in another state need that state's GSTIN — add it on the location.</p>
+          <label class="field"><span>Invoice prefix (1–5 capital letters/numbers)</span><input name="invoice_prefix" maxlength="5" pattern="[A-Z0-9]{1,5}" required /></label>
+        </fieldset>
+        <fieldset>
+          <legend>Booking rules</legend>
+          <label class="check"><input type="checkbox" name="allow_pay_on_arrival" /> Offer “pay on arrival” (you confirm each request)</label>
+          <label class="field"><span>Hold pay-on-arrival requests for (hours)</span><input name="arrival_hold_hours" type="number" min="1" max="168" required /></label>
+          <label class="field"><span>Hold dates while a guest pays online (minutes)</span><input name="online_hold_minutes" type="number" min="20" max="180" required /></label>
+          <label class="field"><span>Longest stay bookable online (nights)</span><input name="max_nights" type="number" min="1" max="365" required /></label>
+          <label class="field"><span>How far ahead guests can book (days)</span><input name="booking_window_days" type="number" min="7" max="730" required /></label>
+          <div class="field"><span>Weekend price applies to these nights</span>
+            <div class="weekdays" id="weekend-days"></div></div>
+          <label class="field"><span>Time zone</span><input name="timezone" maxlength="64" required /></label>
+        </fieldset>
+        <p class="msg" id="settings-msg" role="status" hidden></p>
+        <button class="btn" type="submit" id="settings-btn">Save settings</button>
+      </form>
+    </main>
+  </div>
+
+  <!-- ============ DIALOGS ============ -->
+  <div class="modal" id="dlg" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+      <div class="modal-head"><div><h2 id="dlg-title"></h2><div class="modal-sub" id="dlg-sub"></div></div><button class="modal-close" type="button" data-action="dlg-close" aria-label="Close">✕</button></div>
+      <div class="modal-body" id="dlg-body"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

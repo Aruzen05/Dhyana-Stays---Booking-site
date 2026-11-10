@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin.html
+
+# Dhyana Stays — official domain
+Sitemap: https://dhyanastays.com/sitemap.xml
