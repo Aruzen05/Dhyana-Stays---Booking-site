@@ -53,11 +53,12 @@ window.SITE_CONFIG = {
     imageAlt: "A tiled-roof courtyard house with a lily pond in golden evening light",
   },
 
+  // The strip under the top photo. icon is one of: calm, nature, home, support, pin, phone, mail, clock, check.
   highlights: [
-    { icon: "🧘", label: "Space to slow down" },
-    { icon: "🌿", label: "Nature all around" },
-    { icon: "🏡", label: "Handpicked stays" },
-    { icon: "🕊️", label: "Support every day, 24×7" },
+    { icon: "calm", label: "Space to slow down" },
+    { icon: "nature", label: "Nature all around" },
+    { icon: "home", label: "Handpicked stays" },
+    { icon: "support", label: "Support every day, 24×7" },
   ],
 
   about: {
@@ -74,7 +75,7 @@ window.SITE_CONFIG = {
     imageAlt: "A courtyard house with a pond at sunset, seen from above",
   },
 
-  // Shown on the site and before guests pay. ⚠ Replace with your real policy.
+  // Shown on the site and before guests pay. IMPORTANT: replace with your real policy.
   policies: {
     checkIn: "2:00 PM",
     checkOut: "11:00 AM",

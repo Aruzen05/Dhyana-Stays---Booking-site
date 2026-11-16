@@ -21,6 +21,29 @@
   const cssUrl = (u) => { const s = safeUrl(u); return s ? `url("${s.replace(/["\\\n\r]/g, "")}")` : "none"; };
 
   // ------------------------------------------------------------------
+  //  Icons: simple line drawings in the text colour (no emoji, so they look
+  //  the same on every device). icon("pin") → inline <svg>. Unknown names → "".
+  // ------------------------------------------------------------------
+  const ICONS = {
+    pin: '<path d="M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
+    phone: '<path d="M6.5 3.5h3l1.5 4-2 1.3a11 11 0 0 0 6.2 6.2l1.3-2 4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z"/>',
+    mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.6 7 8.4 6.2L20.4 7"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8.2 12.4 2.7 2.7 5-5.4"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>',
+    alert: '<path d="M10.3 4.2 2.8 17.5A2 2 0 0 0 4.5 20.5h15a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4"/><path d="M12 17h.01"/>',
+    play: '<path d="M8 5.8v12.4a.8.8 0 0 0 1.2.7l9.6-6.2a.8.8 0 0 0 0-1.4L9.2 5.1A.8.8 0 0 0 8 5.8z" fill="currentColor"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18"/>',
+    // highlights (config.js → highlights[].icon)
+    calm: '<path d="M12 6.5c1.8 1.9 2.6 4 2.6 6.2S13.8 17 12 18.5c-1.8-1.5-2.6-3.6-2.6-5.8S10.2 8.4 12 6.5z"/><path d="M9.6 10.2C7.4 9.8 5.4 10.5 3.5 12c1.6 3.6 4.7 5.8 8.5 6.5"/><path d="M14.4 10.2c2.2-.4 4.2.3 6.1 1.8-1.6 3.6-4.7 5.8-8.5 6.5"/>',
+    nature: '<path d="M5 19.5C5 11 10 5.5 19.5 4.5 19.5 14 14 19.5 5 19.5z"/><path d="M5 19.5 13.5 11"/>',
+    home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M5.8 9.4V20h12.4V9.4"/><path d="M10 20v-5.2h4V20"/>',
+    support: '<path d="M4.5 14.5V12a7.5 7.5 0 0 1 15 0v2.5"/><rect x="3" y="13.5" width="4" height="6" rx="1.6"/><rect x="17" y="13.5" width="4" height="6" rx="1.6"/><path d="M19 19.5c0 1.2-1.6 2-4 2h-2"/>',
+  };
+  const icon = (name, cls = "icon") => (ICONS[name]
+    ? `<svg class="${esc(cls)}" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`
+    : "");
+
+  // ------------------------------------------------------------------
   //  Dates. 'YYYY-MM-DD' strings are calendar dates: all maths is done in
   //  UTC so a guest's own timezone can never shift a day.
   // ------------------------------------------------------------------
@@ -152,6 +175,9 @@
     over_email_send_rate_limit: "Too many emails sent. Please wait a few minutes.",
     weak_password: "Choose a stronger password (at least 10 characters, mixing words and numbers).",
     same_password: "The new password must be different from the old one.",
+    media_too_big: "Photos and videos for one stay can add up to 500 MB at most. Remove something first.",
+    file_too_big_for_plan: "That file is bigger than your Supabase plan accepts. The Free plan takes files up to 50 MB; on Pro, raise Storage → Settings → Global file size limit to 500 MB.",
+    invalid_mime_type: "That file type isn't accepted. Use JPEG, PNG or WebP photos, or MP4, WebM or MOV videos.",
     "23505": "That ID is already in use.",
     "23503": "This room has bookings, so it can't be deleted — untick “Show on website” to hide it instead.",
     "23514": "Some values aren't allowed — please check the form (e.g. GSTIN format, email or phone).",
@@ -324,9 +350,13 @@
     try {
       const canvas = await window.html2canvas(wrap.firstElementChild, { scale: 2, backgroundColor: "#ffffff", logging: false, windowWidth: 794 });
       const { jsPDF } = window.jspdf;
-      const w = 210, h = (canvas.height * w) / canvas.width;
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [w, Math.max(h, 100)] });
-      pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, w, h);
+      // Always a normal A4 page. (Sizing the page to the receipt made it wider than tall;
+      // jsPDF then turned the "portrait" page sideways and cut off the right-hand side.)
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
+      let w = pageW, h = (canvas.height * pageW) / canvas.width;
+      if (h > pageH) { h = pageH; w = (canvas.width * pageH) / canvas.height; }   // a very long receipt shrinks to fit one page
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", (pageW - w) / 2, 0, w, h);
       const slug = String((CFG.brand || {}).fileSlug || "Stay").replace(/[^A-Za-z0-9]/g, "") || "Stay";
       const id = String(b.invoice_no || b.ref).replace(/[^A-Za-z0-9-]/g, "-");
       pdf.save(`${slug}-${b.invoice_no ? "Invoice" : "Booking"}-${id}.pdf`);
@@ -336,7 +366,7 @@
   }
 
   window.Stay = {
-    CFG, esc, safeUrl, cssUrl,
+    CFG, esc, safeUrl, cssUrl, icon,
     MONTHS, DOW, parseYMD, ymd, addDays, nightsBetween, dayOfWeek, todayIn, fmtDate, fmtDateTime, timeLeft,
     inr, inrRupees, plural,
     ApiError, configured, request, rest, rpc, bookingApi, friendly,

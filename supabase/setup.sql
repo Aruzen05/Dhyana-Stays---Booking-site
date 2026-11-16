@@ -30,6 +30,32 @@ language sql immutable set search_path = '' as $$
   select coalesce(bool_and(length(x) between 1 and 120), true) from unnest(p) as x
 $$;
 
+-- Room photos & videos (rooms.media), in display order; the first one is the cover:
+--   [{"type": "image" | "video", "url": "https://…", "path": "<file in room-images>", "size": <bytes>}, …]
+-- Up to 40 items, photos up to 20 MB each, and 500 MB in total per stay.
+create or replace function public.media_url_ok(u text) returns boolean
+language sql immutable set search_path = '' as $$
+  select u ~ '^(https://|images/)[^\s"''<>]+$'
+$$;
+create or replace function public.valid_media(m jsonb) returns boolean
+language plpgsql immutable set search_path = '' as $$
+declare x jsonb; total numeric := 0;
+begin
+  if m is null or jsonb_typeof(m) <> 'array' or jsonb_array_length(m) > 40 then return false; end if;
+  for x in select e from jsonb_array_elements(m) as e loop
+    if jsonb_typeof(x) <> 'object' or coalesce(x->>'type', '') not in ('image', 'video')
+       or not coalesce(public.media_url_ok(x->>'url'), false)
+       or coalesce(x->>'path', '') !~ '^[A-Za-z0-9._-]{0,200}$'
+       or jsonb_typeof(x->'size') is distinct from 'number' then
+      return false;
+    end if;
+    if (x->>'size')::numeric < 0 or (x->>'type' = 'image' and (x->>'size')::numeric > 20971520) then return false; end if;
+    total := total + (x->>'size')::numeric;
+  end loop;
+  if total > 524288000 then raise exception 'media_too_big'; end if;   -- 500 MB per stay
+  return true;
+end $$;
+
 -- ---------------------------------------------------------------------
 --  TABLES
 -- ---------------------------------------------------------------------
@@ -116,6 +142,16 @@ create table if not exists public.rooms (
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
+-- Photos & videos (see valid_media above). image_url is kept as the cover photo for the
+-- booking form, invoices and search engines: the first photo in this list.
+alter table public.rooms add column if not exists media jsonb not null default '[]'::jsonb;
+-- Rooms from before media existed: their uploaded photo becomes the first item.
+update public.rooms
+   set media = jsonb_build_array(jsonb_build_object('type', 'image', 'url', image_url,
+         'path', coalesce(substring(image_url from '/room-images/([A-Za-z0-9._-]+)$'), ''), 'size', 0))
+ where media = '[]'::jsonb and image_url ~ '^https://';
+alter table public.rooms drop constraint if exists rooms_media_check;
+alter table public.rooms add constraint rooms_media_check check (public.valid_media(media));
 
 create table if not exists public.bookings (
   id                  uuid primary key default gen_random_uuid(),
@@ -193,6 +229,20 @@ drop trigger if exists rooms_touch on public.rooms;
 create trigger rooms_touch before update on public.rooms for each row execute function public.touch_updated_at();
 drop trigger if exists bookings_touch on public.bookings;
 create trigger bookings_touch before update on public.bookings for each row execute function public.touch_updated_at();
+
+-- Keeps rooms.image_url = the first photo in rooms.media (none → the site shows a placeholder).
+create or replace function public.rooms_media_cover() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if jsonb_typeof(new.media) is distinct from 'array' then return new; end if;   -- the check constraint refuses it
+  if tg_op = 'INSERT' and jsonb_array_length(new.media) = 0 then return new; end if;
+  if tg_op = 'UPDATE' and new.media is not distinct from old.media then return new; end if;
+  new.image_url := (select e->>'url' from jsonb_array_elements(new.media) with ordinality as t(e, n)
+                     where e->>'type' = 'image' order by n limit 1);
+  return new;
+end $$;
+drop trigger if exists rooms_media_cover on public.rooms;
+create trigger rooms_media_cover before insert or update on public.rooms for each row execute function public.rooms_media_cover();
 
 -- ---------------------------------------------------------------------
 --  HELPERS (internal — not callable from the website)
@@ -673,7 +723,7 @@ grant  update (admin_notes) on public.bookings to authenticated;     -- the ONLY
 
 -- Function privileges: lock everything, then open exactly what each caller needs.
 revoke execute on function
-  public.touch_updated_at(), public.is_admin(), public.local_today(), public.gst_rate_for(int),
+  public.touch_updated_at(), public.rooms_media_cover(), public.is_admin(), public.local_today(), public.gst_rate_for(int),
   public.booking_json(public.bookings), public.validate_stay(date, date, boolean),
   public.compute_quote(text, date, date, int), public.room_bookable(text), public.expire_stale_holds(), public.next_invoice_no(),
   public.get_availability(text, date, date), public.quote_stay(text, date, date, int),
@@ -698,10 +748,13 @@ grant execute on function
 to service_role;
 
 -- ---------------------------------------------------------------------
---  STORAGE: room photos (public to view, admins to upload)
+--  STORAGE: room photos and videos (public to view, admins to upload)
+--  Files up to 500 MB. Supabase's Free plan refuses any file over 50 MB whatever this says;
+--  on Pro, also raise Storage → Settings → "Global file size limit" to 500 MB (see README).
 -- ---------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('room-images', 'room-images', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+values ('room-images', 'room-images', true, 524288000,
+        array['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'])
 on conflict (id) do update
   set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 

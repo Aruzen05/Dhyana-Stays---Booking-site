@@ -27,7 +27,7 @@ dhyana-stays-website/
 |---|---|
 | Phone numbers, WhatsApp, emails, office address, map link, support hours | **admin → Settings → Contact details** (live straight away) |
 | Locations (Auroville and any others): address, state, map, GSTIN | **admin → Locations** |
-| Rooms, prices, photos, which location each room is in | **admin → Rooms** |
+| Rooms, prices, photos and videos (and their order), which location each room is in | **admin → Rooms** |
 | GST, invoice prefix, pay on arrival, hold times | **admin → Settings** |
 | Brand wording, colours, hero/about text, policies | `web/config.js` |
 | Link-preview title and description (WhatsApp, Google) | the `BRAND` block at the top of `web/index.html` |
@@ -47,6 +47,34 @@ dhyana-stays-website/
 | Someone changes your phone number or prices | Only logged-in admins can edit contact details, rooms, locations or settings. Phone numbers, emails and links are checked before saving. |
 | Someone injects code through a name or room description | Every piece of text is escaped. A strict content security policy blocks unknown scripts. |
 | Wrong GST charged | GST is worked out per room per night with the 2025 slabs, using the state of the room's location. It's off by default. A GSTIN from the wrong state is refused. |
+
+---
+
+## Try it on your computer first (no Supabase needed)
+
+You can try the website and the owner dashboard on your own computer before setting anything up. You need [Node.js](https://nodejs.org) 22 or newer. In a terminal:
+
+```
+cd tests
+npm install        # first time only
+npm run local
+```
+
+Then open **<http://localhost:8787>**. The owner dashboard is at **<http://localhost:8787/admin.html>**.
+
+| Login | Email | Password |
+|---|---|---|
+| Sample owner (admin) | `owner@example.com` | `test-owner-123` |
+| Not an admin (should be refused) | `not-admin@example.com` | `not-admin-123` |
+
+- **What's real:** the pages in `web/`, the database rules in `setup.sql` and the booking server code all run unchanged. Prices, availability, double-booking protection, invoices and admin permissions behave as they will on Supabase.
+- **What's fake:** Razorpay opens a test window with "Pay successfully", "Make the payment fail" and "Close without paying". Emails aren't sent; read them at **<http://localhost:8787/__local/emails>**. "Forgot password" puts its reset link there too.
+- **Sample places:** besides Auroville there's a sample Kodaikanal location with one room, so the place search and place buttons have something to choose between. It exists only in this local server.
+- **Sample bookings:** three are added on start. One is paid online, one is pay on arrival waiting for you to confirm, and one is a price-on-request inquiry.
+- **Everything resets** when you stop the server with Ctrl+C. Uploaded photos and videos and password changes are lost too.
+- **Photos and videos** upload the same way as on Supabase, big files in 6 MB pieces. To see the error the Free plan gives for files over 50 MB, start it with `$env:LOCAL_MAX_FILE_MB=50; npm run local`.
+- **Limits still apply.** Every booking from your computer comes from one address, so after 6 unconfirmed bookings the site says "Too many attempts". Confirm or cancel some in the dashboard, or restart the server.
+- **The sample logins never reach the live site.** They exist only inside `tests/local/server.mjs`, and Cloudflare publishes only the `web/` folder.
 
 ---
 
@@ -110,10 +138,21 @@ Then go to **Edge Functions → Secrets** and add:
 ### 5. Photos and wording
 
 - The site already uses the Dhyana Stays logo, colours (sage and antique gold), fonts and wording.
-- **Photos:** the page photos are `web/images/hero.jpg` (top of the page), `about.jpg` (about section) and `banner.jpg` (the quote strip). To change one, save a new photo over it with the same name, roughly 1600 × 900 and under 400 KB ([squoosh.app](https://squoosh.app) shrinks them). If you use a different file name, update `hero.image`, `about.image` or `banner.image` in `config.js`; for the top photo, also update the `preload` line in `index.html`. Room photos are uploaded in the admin.
+- **Photos:** the page photos are `web/images/hero.jpg` (top of the page), `about.jpg` (about section) and `banner.jpg` (the quote strip). To change one, save a new photo over it with the same name, roughly 1600 × 900 and under 400 KB ([squoosh.app](https://squoosh.app) shrinks them). If you use a different file name, update `hero.image`, `about.image` or `banner.image` in `config.js`; for the top photo, also update the `preload` line in `index.html`. Room photos and videos are uploaded in the admin (see below).
 - **The current photos are computer-generated illustrations.** They're fine for setting the mood, but guests expect real photos of the place they're booking. Swap them for real photos of your stays as soon as you have them, and never use an illustration as a room photo.
 - **Share image:** `images/og-image.jpg` is what WhatsApp and Facebook show when someone shares the link. It's 1200 × 630 and made from the top photo. When you change the top photo, make a new one the same size.
 - **⚠️ Policies:** replace the sample cancellation policy, check-in/out times and house rules in `config.js` → `policies` with your real ones **before going live**. Guests see these before paying.
+
+#### Room photos and videos
+
+Each room has a **Photos & videos** section in **admin → Rooms**:
+
+- **Add** photos (JPEG, PNG or WebP, up to 20 MB each) and videos (MP4, WebM or MOV). Everything for one stay can add up to **500 MB**; the meter shows how much is used.
+- **Arrange** them with the ← → arrows. The first one is the **cover** on the website (**Make cover** moves one to the front). Guests tap the cover to open a gallery in the same order, with videos playable.
+- New files upload when you click **Save changes**, with a progress bar. Big videos go up in 6 MB pieces and carry on by themselves if the connection drops for a moment. Keep the page open until it's done.
+- **Remove** takes an item off the list; its file is deleted from storage when you save.
+
+**Supabase plan limits.** The Free plan refuses any single file over **50 MB** and has **1 GB** of storage in total (about two stays at 500 MB each). For bigger videos or more stays, use the Pro plan and set **Storage → Settings → Global file size limit** to **500 MB**. Every video a guest watches also counts towards Supabase's bandwidth (egress) allowance, so keep videos short: a 1–2 minute 1080p MP4 is usually 30–100 MB. MP4 (H.264) plays in every browser; MOV from an iPhone may not play in Chrome on Windows.
 
 ### 6. Put the code on GitHub
 
@@ -154,9 +193,9 @@ Open `https://dhyanastays.com/admin.html` and log in. Then:
 - **Settings → Contact details:** check the phone numbers, WhatsApp, emails, office address, Google Maps link and support hours. They appear on the website, invoices and guest emails.
 - **Settings → Business & GST:** enter the legal business name. Switch GST on and enter the GSTIN only if you're registered.
 - **Locations → Auroville:** add the full address, PIN code, map link and a short description. Add each other place you host stays with **+ Add location**.
-- **Rooms:** replace the sample rooms. For each room, choose its **location** and set prices, how many of that room you have, the maximum guests and a photo.
+- **Rooms:** replace the sample rooms. For each room, choose its **location** and set prices, how many of that room you have, the maximum guests, and its photos and videos (the first one is the cover).
 
-Once rooms exist in two or more locations, the website automatically shows location tabs (All stays · Auroville · …), and the booking form groups rooms by location.
+Above the rooms, the website shows a place search, a button for each location, and price filters (a price range per night, and **Weekend price**: any, special weekend price, or the same price every day). With **Special weekend price** chosen, the price range is compared with the weekend rate; otherwise with each stay's lowest nightly rate. Price-on-request stays drop out while a price range is set, and the filters hide themselves if no stay has a price. Guests can type a town, area, state or PIN code, and the search also reads the location's address and description, so "Pondicherry" finds Auroville. Once rooms exist in two or more locations, an **All stays** button appears too, and the booking form groups rooms by location. When a guest clicks **Book this room**, the booking form opens on just that room, and they can switch with **Change**. If they've picked a place first, **Book now** offers only that place's rooms. Filling in each location's area, address and description makes the search work better.
 
 ---
 
@@ -170,7 +209,7 @@ With Razorpay in **test mode**, run through each of these:
 - [ ] Book **pay on arrival**. It should appear under **Needs action**. Confirm it, then **record the payment**, which issues the next invoice number.
 - [ ] Fill a room's dates until it's **full**. Those dates should be struck out on the calendar.
 - [ ] Change a phone number in **Settings**, reload the website, and check the new number shows.
-- [ ] Add a second location with a room, and check the location tabs appear on the website.
+- [ ] Add a second location with a room. Check that the place buttons show it, and that searching its town or area finds it.
 - [ ] Use **+ Add booking** for a phone guest. Those dates should then be blocked online.
 - [ ] Use **Forgot password** on the admin login, and check the reset email arrives and works.
 - [ ] Open the site on a phone and check the layout.
@@ -217,6 +256,8 @@ Guest emails end with the contact details from admin → Settings.
 
 | You see | Fix |
 |---|---|
+| "That file is bigger than your Supabase plan accepts" when uploading a video | The Free plan takes files up to 50 MB. Make the video smaller, or move to Pro and raise **Storage → Settings → Global file size limit** to 500 MB. |
+| A room's video shows a black box or won't play | Use MP4 (H.264). Some MOV files from phones only play in Safari. |
 | "Our rooms couldn't be loaded" | `supabase.url` / `supabase.key` in `config.js` are wrong, or `setup.sql` wasn't run. The site then shows the fallback phone and email from `config.js` → `contactFallback`. |
 | A room doesn't appear on the site | Check that the room *and* its location both have "Show on website" ticked. |
 | "Online booking isn't fully set up yet" | An edge-function secret is missing. Check **Edge Functions → booking-api → Logs**. |
@@ -234,5 +275,5 @@ These need [Node.js](https://nodejs.org) 22+. They run `setup.sql` on a real Pos
 ```
 cd tests
 npm install
-npm test        # 174 checks: database rules, booking server, website + admin
+npm test        # 235 checks: database rules, booking server, website + admin
 ```

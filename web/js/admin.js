@@ -380,7 +380,7 @@
     const doc = r.payment_status === "paid" && r.invoice_no ? "Download invoice" : r.source !== "inquiry" ? "Download booking summary" : "";
 
     openDialog(r.guest_name, `${r.ref} · booked ${S.fmtDateTime(r.created_at)}`, `
-      ${r.needs_attention ? `<div class="alert">⚠️ Needs attention. ${S.esc(r.admin_notes || "")}</div>` : ""}
+      ${r.needs_attention ? `<div class="alert">Needs attention. ${S.esc(r.admin_notes || "")}</div>` : ""}
       <div class="badges">${statusBadge(r)} ${payBadge(r)}</div>
       <section class="box"><h3>Guest</h3>
         <div class="kv"><span>Name</span><b>${S.esc(r.guest_name)}</b></div>
@@ -558,13 +558,160 @@
   }
   const slug = (s) => String(s).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "room";
 
+  // ---------- photos & videos ----------
+  // Each stay has an ordered list (rooms.media); the first item is the cover. Files are only
+  // uploaded when the room is saved, so arranging and removing can be undone by not saving.
+  const MEDIA_LIMIT = 500 * 1024 * 1024, PHOTO_LIMIT = 20 * 1024 * 1024, MEDIA_MAX = 40;
+  const MEDIA_TYPES = { "image/jpeg": ["image", "jpg"], "image/png": ["image", "png"], "image/webp": ["image", "webp"],
+    "video/mp4": ["video", "mp4"], "video/webm": ["video", "webm"], "video/quicktime": ["video", "mov"] };
+  const media = new Map();   // form key → { items: [{ type, url, path, size, file?, preview?, ext? }], removed: [paths] }
+  const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(n >= 100 * 1048576 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  const mediaUsed = (st) => st.items.reduce((n, m) => n + (Number(m.size) || 0), 0);
+
+  function initMedia(key, r) {
+    const old = media.get(key);
+    if (old) old.items.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
+    let items = (Array.isArray(r.media) ? r.media : []).map((m) => ({ type: m.type, url: m.url, path: m.path || "", size: Number(m.size) || 0 }));
+    if (!items.length && /^https:\/\//.test(r.image_url || "")) items = [{ type: "image", url: r.image_url, path: "", size: 0 }];
+    media.set(key, { items, removed: [] });
+  }
+
+  function mediaHTML(key) {
+    const st = media.get(key);
+    const used = mediaUsed(st), last = st.items.length - 1;
+    const items = st.items.map((m, i) => {
+      const src = S.safeUrl(m.preview || m.url);
+      const thumb = m.type === "video"
+        ? `${src ? `<video src="${S.esc(src)}#t=0.1" preload="metadata" muted playsinline></video>` : ""}<span class="media-badge">${S.icon("play", "icon icon-xs")}Video</span>`
+        : `<img src="${S.esc(src || "images/placeholder-room.svg")}" alt="" loading="lazy" />`;
+      const what = `${m.type === "video" ? "video" : "photo"} ${i + 1}`;
+      return `<li class="media-item${m.file ? " is-new" : ""}">
+        <div class="media-thumb">${thumb}${i === 0 ? `<span class="media-cover">Cover</span>` : ""}</div>
+        <div class="media-meta"><b>${i + 1}</b> · ${m.type === "video" ? "Video" : "Photo"}${m.size ? ` · ${fmtSize(m.size)}` : ""}${m.file ? ` · <em>not uploaded yet</em>` : ""}</div>
+        <div class="media-tools">
+          <button type="button" class="mt" data-action="media-move" data-i="${i}" data-d="-1" aria-label="Move ${what} earlier"${i === 0 ? " disabled" : ""}>←</button>
+          <button type="button" class="mt" data-action="media-move" data-i="${i}" data-d="1" aria-label="Move ${what} later"${i === last ? " disabled" : ""}>→</button>
+          <button type="button" class="mt" data-action="media-cover" data-i="${i}"${i === 0 ? " disabled" : ""}>Make cover</button>
+          <button type="button" class="mt mt-bad" data-action="media-remove" data-i="${i}" aria-label="Remove ${what}">Remove</button>
+        </div>
+      </li>`;
+    }).join("");
+    const pct = Math.min(100, (used / MEDIA_LIMIT) * 100);
+    return `${st.items.length ? `<ol class="media-list">${items}</ol>` : `<p class="hint">No photos or videos yet. The website shows a placeholder picture.</p>`}
+      <div class="media-meter${used > MEDIA_LIMIT ? " over" : ""}" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
+      <p class="hint" data-media-used>${fmtSize(used)} of 500 MB used · ${st.items.length} of ${MEDIA_MAX} items${st.removed.length ? ` · ${st.removed.length} to delete when you save` : ""}</p>`;
+  }
+  function renderMedia(form, focus) {
+    form.querySelector("[data-media-body]").innerHTML = mediaHTML(form.dataset.room);
+    if (focus) {
+      const target = form.querySelector(focus) || form.querySelector("[data-media-input]");
+      if (target) target.focus();
+    }
+  }
+
+  function addMediaFiles(input) {
+    const form = input.closest("form"), st = media.get(form.dataset.room);
+    const problems = [];
+    let used = mediaUsed(st);
+    for (const file of Array.from(input.files || [])) {
+      const t = MEDIA_TYPES[file.type];
+      if (!t) { problems.push(`${file.name}: use JPEG, PNG or WebP photos, or MP4, WebM or MOV videos.`); continue; }
+      if (t[0] === "image" && file.size > PHOTO_LIMIT) { problems.push(`${file.name}: photos can be up to 20 MB (this one is ${fmtSize(file.size)}).`); continue; }
+      if (st.items.length >= MEDIA_MAX) { problems.push(`A stay can have up to ${MEDIA_MAX} photos and videos.`); break; }
+      if (used + file.size > MEDIA_LIMIT) {
+        problems.push(`${file.name} (${fmtSize(file.size)}) doesn't fit: this stay would go over 500 MB. ${fmtSize(Math.max(0, MEDIA_LIMIT - used))} left.`);
+        continue;
+      }
+      used += file.size;
+      st.items.push({ type: t[0], ext: t[1], file, size: file.size, url: "", path: "", preview: URL.createObjectURL(file) });
+    }
+    input.value = "";
+    renderMedia(form);
+    const msg = form.querySelector("[data-msg]");
+    msg.textContent = problems.join(" "); msg.className = "msg msg-bad"; msg.hidden = !problems.length;
+  }
+
+  function mediaAction(el, kind) {
+    const form = el.closest("form"), st = media.get(form.dataset.room), i = Number(el.dataset.i);
+    if (!st.items[i]) return;
+    if (kind === "move") {
+      const j = i + Number(el.dataset.d);
+      if (j < 0 || j >= st.items.length) return;
+      [st.items[i], st.items[j]] = [st.items[j], st.items[i]];
+      renderMedia(form, `[data-action=media-move][data-i="${j}"][data-d="${el.dataset.d}"]:not(:disabled)`);
+    } else if (kind === "cover") {
+      st.items.unshift(st.items.splice(i, 1)[0]);
+      renderMedia(form, `[data-action=media-remove][data-i="0"]`);
+    } else if (kind === "remove") {
+      const [m] = st.items.splice(i, 1);
+      if (m.file) URL.revokeObjectURL(m.preview); else if (m.path) st.removed.push(m.path);
+      renderMedia(form, `[data-action=media-remove][data-i="${Math.min(i, st.items.length - 1)}"]`);
+    }
+  }
+
+  // Uploads. Files over 6 MB use Supabase's resumable (TUS) upload: 6 MB pieces, retried and resumed
+  // if the connection drops, with progress. Smaller files go up in one request.
+  const CHUNK = 6 * 1024 * 1024;   // Supabase requires exactly 6 MB pieces
+  const publicUrl = (path) => `${SB.url}/storage/v1/object/public/room-images/${path}`;
+  const storageHost = () => { const m = /^https:\/\/([a-z0-9]+)\.supabase\.co$/i.exec(SB.url || ""); return m ? `https://${m[1]}.storage.supabase.co` : SB.url; };
+  const b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+  async function uploadError(res) {
+    let d = {};
+    try { d = await res.json(); } catch { /* not JSON */ }
+    const text = `${d.error || ""} ${d.message || ""}`;
+    const code = res.status === 413 || /exceeded the maximum allowed size|too large/i.test(text) ? "file_too_big_for_plan"
+      : res.status === 415 || /mime/i.test(text) ? "invalid_mime_type" : d.error || d.message || `http_${res.status}`;
+    const e = new S.ApiError(code, res.status, d);
+    e.fatal = res.status !== 401 && res.status < 500;   // retrying won't help
+    return e;
+  }
+  async function uploadFile(path, file, onProgress) {
+    if (file.size <= CHUNK) {
+      await authed((t) => S.request(`${SB.url}/storage/v1/object/room-images/${path}`, {
+        method: "POST", token: t, raw: true, body: file, headers: { "Content-Type": file.type, "cache-control": "max-age=31536000", "x-upsert": "false" },
+      })).catch((e) => { if (e.status === 413) throw new S.ApiError("file_too_big_for_plan", 413); throw e; });
+      onProgress(1);
+      return;
+    }
+    const endpoint = `${storageHost()}/storage/v1/upload/resumable`;
+    const headers = async (extra) => ({ apikey: SB.key, authorization: `Bearer ${await accessToken()}`, "tus-resumable": "1.0.0", ...extra });
+    const meta = { bucketName: "room-images", objectName: path, contentType: file.type, cacheControl: "31536000" };
+    const created = await fetch(endpoint, { method: "POST", headers: await headers({
+      "upload-length": String(file.size), "x-upsert": "false",
+      "upload-metadata": Object.entries(meta).map(([k, v]) => `${k} ${b64(v)}`).join(","),
+    }) });
+    if (created.status !== 201 || !created.headers.get("location")) throw await uploadError(created);
+    const at = new URL(created.headers.get("location"), endpoint).href;
+    let offset = 0, tries = 0;
+    while (offset < file.size) {
+      try {
+        const res = await fetch(at, { method: "PATCH", headers: await headers({ "upload-offset": String(offset), "content-type": "application/offset+octet-stream" }),
+          body: file.slice(offset, offset + CHUNK) });
+        if (res.status !== 204) throw await uploadError(res);
+        offset = Number(res.headers.get("upload-offset"));
+        tries = 0;
+        onProgress(offset / file.size);
+      } catch (e) {
+        if (e.fatal || ++tries > 5) throw e;
+        if (e.status === 401) await refresh().catch(() => {});
+        await new Promise((ok) => setTimeout(ok, 1000 * tries * tries));
+        // Ask the server how much it already has, then carry on from there.
+        const head = await fetch(at, { method: "HEAD", headers: await headers({}) }).catch(() => null);
+        if (head && head.ok && head.headers.get("upload-offset") !== null) offset = Number(head.headers.get("upload-offset"));
+      }
+    }
+  }
+  const deleteFile = (path) => authed((t) => S.request(`${SB.url}/storage/v1/object/room-images/${path}`, { method: "DELETE", token: t }));
+  const keepPageOpen = (e) => { e.preventDefault(); e.returnValue = ""; };
+
   function roomForm(r, isNew) {
     const key = isNew ? `new-${++R.newCount}` : r.id;
+    initMedia(key, r);
     const img = S.safeUrl(r.image_url, "images/placeholder-room.svg");
     return `<form class="card room-edit" data-room="${S.esc(key)}" data-new="${isNew ? 1 : 0}" novalidate>
       <div class="room-edit-head">
         <img src="${S.esc(img)}" alt="" class="thumb" />
-        <div class="grow"><h3>${S.esc(r.name || "New room")}</h3><p class="sub">${isNew ? "Not saved yet" : `ID: ${S.esc(r.id)}${r.location_id ? ` · 📍 ${S.esc(locName(r.location_id))}` : ""} · ${r.is_active ? "shown on website" : "hidden"}`}</p></div>
+        <div class="grow"><h3>${S.esc(r.name || "New room")}</h3><p class="sub">${isNew ? "Not saved yet" : `ID: ${S.esc(r.id)}${r.location_id ? ` · ${S.esc(locName(r.location_id))}` : ""} · ${r.is_active ? "shown on website" : "hidden"}`}</p></div>
         <span class="room-price-tag">${r.price_per_night ? S.inrRupees(r.price_per_night) + "/night" : "Price on request"}</span>
       </div>
       <label class="check"><input type="checkbox" name="is_active" ${r.is_active !== false ? "checked" : ""} /> Show on website and accept bookings</label>
@@ -579,8 +726,16 @@
       </div>
       <label class="field"><span>Description</span><textarea name="description" rows="2" maxlength="2000">${S.esc(r.description || "")}</textarea></label>
       <label class="field"><span>Features — one per line</span><textarea name="features" rows="4">${S.esc((r.features || []).join("\n"))}</textarea></label>
+      <fieldset class="media">
+        <legend>Photos &amp; videos</legend>
+        <p class="hint">Shown on the website in this order; the first one is the cover. Use the arrows to arrange them.</p>
+        <div data-media-body>${mediaHTML(key)}</div>
+        <label class="btn btn-quiet btn-sm media-add">+ Add photos or videos
+          <input type="file" multiple accept="${Object.keys(MEDIA_TYPES).join(",")}" data-media-input class="sr-only" /></label>
+        <p class="hint">Photos: JPEG, PNG or WebP, up to 20 MB each. Videos: MP4, WebM or MOV (MP4 plays everywhere). Up to 500 MB per stay in total. New files upload when you save.</p>
+        <div class="media-progress" data-media-progress hidden><div class="media-meter"><span></span></div><p class="hint" aria-live="polite"></p></div>
+      </fieldset>
       <div class="grid2">
-        <label class="field"><span>Photo (JPEG/PNG/WebP, max 5 MB)</span><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" /></label>
         <label class="field"><span>Display order</span><input name="sort_order" type="number" value="${S.esc(r.sort_order ?? 0)}" /></label>
       </div>
       <p class="msg" data-msg hidden></p>
@@ -598,17 +753,6 @@
     if (!R.rows.length) list.innerHTML = "";
     list.insertAdjacentHTML("afterbegin", roomForm({ is_active: true, max_guests: 2, max_units: 1, sort_order: R.rows.length + 1, location_id: (Lc.rows[0] || {}).id }, true));
     list.firstElementChild.querySelector("input[name=name]").focus();
-  }
-
-  async function uploadPhoto(roomId, file) {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new S.ApiError("bad_image", 400);
-    if (file.size > 5 * 1024 * 1024) throw new S.ApiError("too_big", 400);
-    const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[file.type];
-    const path = `${roomId}-${Date.now()}.${ext}`;
-    await authed((t) => S.request(`${SB.url}/storage/v1/object/room-images/${path}`, {
-      method: "POST", token: t, raw: true, body: file, headers: { "Content-Type": file.type, "cache-control": "max-age=31536000", "x-upsert": "false" },
-    }));
-    return `${SB.url}/storage/v1/object/public/room-images/${path}`;
   }
 
   async function saveRoom(e) {
@@ -630,12 +774,18 @@
       : !(payload.max_guests >= 1) ? "Max guests must be at least 1." : !(payload.max_units >= 1) ? "Number of rooms must be at least 1."
       : payload.price_per_night !== null && !(Number.isInteger(payload.price_per_night) && payload.price_per_night >= 1) ? "Price must be a whole number of rupees."
       : payload.weekend_price !== null && !(Number.isInteger(payload.weekend_price) && payload.weekend_price >= 1) ? "Weekend price must be a whole number of rupees."
-      : payload.weekend_price && !payload.price_per_night ? "Set a weekday price before a weekend price." : "";
+      : payload.weekend_price && !payload.price_per_night ? "Set a weekday price before a weekend price."
+      : mediaUsed(media.get(form.dataset.room)) > MEDIA_LIMIT ? S.friendly({ code: "media_too_big" }) : "";
     if (bad) { msg.textContent = bad; msg.className = "msg msg-bad"; msg.hidden = false; return; }
 
     const btn = form.querySelector("button[type=submit]");
+    const st = media.get(form.dataset.room);
+    const pending = st.items.filter((m) => m.file);
+    const prog = form.querySelector("[data-media-progress]");
+    const fresh = [];   // files uploaded by this save: deleted again if the save fails
     busy(btn, true, "Saving…");
     msg.hidden = true;
+    form.querySelectorAll(".media button, [data-media-input]").forEach((b) => { b.disabled = true; });
     try {
       let id = form.dataset.room;
       if (isNew) {
@@ -643,19 +793,52 @@
         let n = 2;
         while (R.rows.some((r) => r.id === id)) id = `${slug(payload.name).slice(0, 36)}-${n++}`;
       }
-      const file = f.get("photo");
-      if (file && file.size) { btn.textContent = "Uploading photo…"; payload.image_url = await uploadPhoto(id, file); }
+      if (pending.length) {
+        addEventListener("beforeunload", keepPageOpen);
+        prog.hidden = false;
+        for (const [n, m] of pending.entries()) {
+          const path = `${id}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}.${m.ext}`;
+          const show = (p) => {
+            const pct = Math.floor(p * 100);
+            prog.querySelector("span").style.width = `${pct}%`;
+            prog.querySelector("p").textContent = `Uploading ${n + 1} of ${pending.length}: ${m.file.name} (${fmtSize(m.size)}) · ${pct}%. Keep this page open.`;
+            btn.textContent = `Uploading ${n + 1} of ${pending.length} · ${pct}%`;
+          };
+          show(0);
+          await uploadFile(path, m.file, show);
+          fresh.push(path);
+          m.done = { path, url: publicUrl(path) };
+        }
+        btn.textContent = "Saving…";
+      }
+      payload.media = st.items.map((m) => (m.done
+        ? { type: m.type, url: m.done.url, path: m.done.path, size: m.size }
+        : { type: m.type, url: m.url, path: m.path || "", size: Number(m.size) || 0 }));
       const rows = isNew
         ? await aRest("rooms", { method: "POST", body: { id, ...payload }, prefer: "return=representation" })
         : await aRest(`rooms?id=eq.${encodeURIComponent(id)}`, { method: "PATCH", body: payload, prefer: "return=representation" });
       if (!rows.length) throw new S.ApiError("not_authorised", 403);
+      // Saved: now really delete the files that were removed from the list.
+      for (const path of st.removed) deleteFile(path).catch((e) => console.warn("[admin] couldn't delete", path, e));
+      st.items.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
+      media.delete(form.dataset.room);
       await fetchRooms();
-      renderRooms();
+      // Re-draw only this room, so unsaved changes in other rooms are kept.
+      const row = R.rows.find((r) => r.id === id) || rows[0];
+      form.insertAdjacentHTML("afterend", roomForm(row, false));
+      form.remove();
       toast(isNew ? "Room created — it's live on the website." : "Saved — changes are live.");
     } catch (ex) {
-      msg.textContent = ex.code === "bad_image" ? "Use a JPEG, PNG or WebP image." : ex.code === "too_big" ? "That photo is over 5 MB — please resize it." : S.friendly(ex);
+      for (const path of fresh) deleteFile(path).catch(() => {});
+      st.items.forEach((m) => { delete m.done; });
+      msg.textContent = S.friendly(ex);
       msg.className = "msg msg-bad"; msg.hidden = false;
+      prog.hidden = true;
+      form.querySelectorAll(".media button, [data-media-input]").forEach((b) => { b.disabled = false; });
+      renderMedia(form);
       busy(btn, false);
+    } finally {
+      removeEventListener("beforeunload", keepPageOpen);
     }
   }
   async function deleteRoom(form) {
@@ -664,6 +847,7 @@
     try {
       const rows = await aRest(`rooms?id=eq.${encodeURIComponent(id)}`, { method: "DELETE", prefer: "return=representation" });
       if (!rows.length) throw new S.ApiError("not_authorised", 403);
+      for (const m of rows[0].media || []) if (m.path) deleteFile(m.path).catch(() => {});   // free the storage too
       await fetchRooms(); renderRooms(); toast("Room deleted.");
     } catch (e) { toast(S.friendly(e), true); }
   }
@@ -700,7 +884,7 @@
     const warn = isNew ? "" : gstWarning(l);
     return `<form class="card loc-edit" data-loc="${S.esc(key)}" data-new="${isNew ? 1 : 0}" novalidate>
       <div class="room-edit-head">
-        <div class="grow"><h3>📍 ${S.esc(l.name || "New location")}</h3>
+        <div class="grow"><h3>${S.esc(l.name || "New location")}</h3>
           <p class="sub">${isNew ? "Not saved yet" : `ID: ${S.esc(l.id)} · ${S.plural(rooms, "room")} · ${l.is_active ? "shown on website" : "hidden"}`}</p></div>
       </div>
       ${warn ? `<p class="msg msg-bad">${S.esc(warn)}</p>` : ""}
@@ -906,6 +1090,9 @@
       "add-room": addRoom,
       "discard-room": () => { el.closest("form").remove(); if (!R.rows.length && !$("#rooms-list form")) renderRooms(); },
       "delete-room": () => deleteRoom(el.closest("form")),
+      "media-move": () => mediaAction(el, "move"),
+      "media-cover": () => mediaAction(el, "cover"),
+      "media-remove": () => mediaAction(el, "remove"),
       "add-location": addLocation,
       "discard-location": () => { el.closest("form").remove(); if (!Lc.rows.length && !$("#locations-list form")) renderLocations(); },
       "delete-location": () => deleteLocation(el.closest("form")),
@@ -917,6 +1104,7 @@
     if (e.key === "Enter" && e.target.matches("tr[data-action=open]")) openBooking(e.target.dataset.id);
   });
   $("#dlg").addEventListener("click", (e) => { if (e.target.id === "dlg") closeDialog(); });
+  document.addEventListener("change", (e) => { if (e.target.matches("[data-media-input]")) addMediaFiles(e.target); });
   document.addEventListener("submit", (e) => {
     const id = e.target.id;
     if (id === "f-login") doLogin(e);

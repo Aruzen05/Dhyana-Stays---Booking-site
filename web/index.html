@@ -84,7 +84,36 @@
     <section class="section" id="stay">
       <p class="eyebrow center">Where you'll rest</p>
       <h2 class="section-title">Our stays</h2>
-      <div id="loc-tabs"></div>
+      <!-- Location finder: search by place + pick a place. Filled in by site.js from admin → Locations. -->
+      <div class="loc-finder" id="loc-finder" hidden>
+        <div class="loc-search">
+          <svg class="loc-search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.6-3.6" /></svg>
+          <label class="sr-only" for="loc-q">Find a stay by place</label>
+          <input id="loc-q" type="search" placeholder="Search a town, area or state" autocomplete="off" spellcheck="false" maxlength="60" enterkeyhint="search" aria-controls="rooms" />
+          <button type="button" class="loc-clear" data-action="loc-clear" aria-label="Clear search" hidden><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div id="loc-tabs"></div>
+        <!-- Price filters. Hidden automatically when no stay has a price. -->
+        <div class="stay-filters" id="stay-filters" role="group" aria-label="Filter stays" hidden>
+          <div class="sf-field" id="sf-price">
+            <span class="sf-label" id="sf-price-label" aria-hidden="true">Price per night</span>
+            <div class="sf-range">
+              <label class="sf-money"><span class="sr-only" id="sf-min-name">Lowest price per night</span><span class="sf-cur" aria-hidden="true">₹</span><input id="sf-min" type="number" inputmode="numeric" min="0" step="500" placeholder="Min" /></label>
+              <span class="sf-to" aria-hidden="true">to</span>
+              <label class="sf-money"><span class="sr-only" id="sf-max-name">Highest price per night</span><span class="sf-cur" aria-hidden="true">₹</span><input id="sf-max" type="number" inputmode="numeric" min="0" step="500" placeholder="Max" /></label>
+            </div>
+          </div>
+          <label class="sf-field" id="sf-weekend-field"><span class="sf-label">Weekend price</span>
+            <select id="sf-weekend">
+              <option value="">Any</option>
+              <option value="special">Special weekend price</option>
+              <option value="same">Same price every day</option>
+            </select>
+          </label>
+          <button type="button" class="sf-clear" data-action="filters-clear" hidden>Clear filters</button>
+        </div>
+        <p class="loc-status" id="loc-status" role="status" aria-live="polite" hidden></p>
+      </div>
       <div id="loc-intro"></div>
       <div class="rooms" id="rooms"><p class="rooms-msg">Loading stays…</p></div>
     </section>
@@ -127,12 +156,12 @@
     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="bk-title">
       <div class="modal-head">
         <h2 id="bk-title">Reserve your stay</h2>
-        <button type="button" class="modal-close" data-action="close" aria-label="Close">✕</button>
+        <button type="button" class="modal-close" data-action="close" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
 
       <div class="modal-body" id="bk-form">
-        <div class="step-label">1 · Choose a room</div>
-        <div class="room-options" id="bk-rooms" role="radiogroup" aria-label="Room"></div>
+        <div class="step-label" id="bk-room-label">1 · Choose a room</div>
+        <div class="room-options" id="bk-rooms"></div>
 
         <div class="step-label">2 · Choose your dates</div>
         <div class="cal" id="bk-cal"></div>
@@ -184,6 +213,24 @@
       </div>
 
       <div class="modal-body done" id="bk-done" hidden></div>
+    </div>
+  </div>
+
+  <!-- ================= PHOTO & VIDEO GALLERY ================= -->
+  <div class="gallery" id="gallery" hidden>
+    <div class="gallery-box" role="dialog" aria-modal="true" aria-labelledby="gl-title">
+      <div class="gallery-head">
+        <h2 id="gl-title"></h2>
+        <span class="gallery-count" id="gl-count" aria-live="polite"></span>
+        <button type="button" class="gallery-close" data-action="gallery-close" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="gallery-stage-wrap">
+        <div class="gallery-stage" id="gl-stage"></div>
+        <button type="button" class="gallery-nav gallery-prev" data-action="gallery-prev" aria-label="Previous">‹</button>
+        <button type="button" class="gallery-nav gallery-next" data-action="gallery-next" aria-label="Next">›</button>
+      </div>
+      <div class="gallery-thumbs" id="gl-thumbs"></div>
+      <div class="gallery-foot"><button type="button" class="btn" id="gl-book" data-action="book">Book this room</button></div>
     </div>
   </div>
 

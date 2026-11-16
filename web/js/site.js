@@ -10,7 +10,9 @@
   const PHONE_RE = /^\+?[0-9 ()-]{7,20}$/;
 
   const state = {
-    rooms: [], locations: [], locFilter: "",
+    rooms: [], locations: [], locFilter: "", locQuery: "", shownRoomIds: null,
+    filters: { min: null, max: null, weekend: "" },   // price filters on "Our stays"
+    showPicker: true, roomScope: null,   // booking dialog: room list open? limited to which rooms?
     settings: { allow_pay_on_arrival: true, max_nights: 30, booking_window_days: 365, arrival_hold_hours: 24 },
     roomId: null, avail: {}, availLoading: false, today: S.todayIn(CFG.timezone),
     calY: 0, calM: 0, pick: 0, ci: null, co: null, units: 1, guests: 2,
@@ -35,7 +37,7 @@
     setImg($("#banner-img"), CFG.banner?.image, CFG.banner?.imageAlt);
 
     $("#highlights").innerHTML = (CFG.highlights || [])
-      .map((h) => `<li><span class="hl-icon" aria-hidden="true">${S.esc(h.icon)}</span><span>${S.esc(h.label)}</span></li>`).join("");
+      .map((h) => `<li>${S.icon(h.icon, "icon hl-icon")}<span>${S.esc(h.label)}</span></li>`).join("");
 
     const p = CFG.policies || {};
     $("#pol-times").innerHTML = `Check-in from <b>${S.esc(p.checkIn || "—")}</b><br>Check-out by <b>${S.esc(p.checkOut || "—")}</b>`;
@@ -53,19 +55,19 @@
     if (wa.length === 10) wa = "91" + wa;                       // wa.me needs the country code
     const cards = [];
     if (c.address.length || S.safeUrl(c.mapUrl)) {
-      cards.push(`<div class="card contact-card"><div class="contact-icon" aria-hidden="true">📍</div><h3>Find us</h3>
+      cards.push(`<div class="card contact-card"><div class="contact-icon">${S.icon("pin")}</div><h3>Find us</h3>
         ${c.address.map((l) => `<p>${S.esc(l)}</p>`).join("")}
         ${S.safeUrl(c.mapUrl) ? `<p><a href="${S.esc(S.safeUrl(c.mapUrl))}" target="_blank" rel="noopener">Open in Maps ↗</a></p>` : ""}</div>`);
     }
     if (c.phones.length || wa.length >= 11) {
-      cards.push(`<div class="card contact-card"><div class="contact-icon" aria-hidden="true">📞</div><h3>Call us</h3>
+      cards.push(`<div class="card contact-card"><div class="contact-icon">${S.icon("phone")}</div><h3>Call us</h3>
         ${c.phones.map((n) => `<p><a href="${S.esc(S.telHref(n))}">${S.esc(n)}</a></p>`).join("")}
         ${wa.length >= 11 ? `<p><a href="https://wa.me/${S.esc(wa)}" target="_blank" rel="noopener">WhatsApp ↗</a></p>` : ""}
         ${c.hours ? `<p class="muted">${S.esc(c.hours)}</p>` : ""}</div>`);
     }
     const emails = c.emails.filter((e) => EMAIL_RE.test(e));
     if (emails.length) {
-      cards.push(`<div class="card contact-card"><div class="contact-icon" aria-hidden="true">✉️</div><h3>Email</h3>
+      cards.push(`<div class="card contact-card"><div class="contact-icon">${S.icon("mail")}</div><h3>Email</h3>
         ${emails.map((e) => `<p><a href="mailto:${S.esc(e)}">${S.esc(e)}</a></p>`).join("")}</div>`);
     }
     $("#contact-grid").innerHTML = cards.join("") || `<p class="rooms-msg">Contact details will appear here soon.</p>`;
@@ -115,7 +117,7 @@
     }
     try {
       const [rooms, settings, locations] = await Promise.all([
-        S.rest("rooms?select=id,location_id,name,capacity_label,max_guests,description,features,price_per_night,weekend_price,max_units,image_url,sort_order&is_active=eq.true&order=sort_order.asc,name.asc"),
+        S.rest("rooms?select=id,location_id,name,capacity_label,max_guests,description,features,price_per_night,weekend_price,max_units,image_url,media,sort_order&is_active=eq.true&order=sort_order.asc,name.asc"),
         S.rest("settings?select=allow_pay_on_arrival,max_nights,booking_window_days,arrival_hold_hours,timezone,contact_phones,contact_whatsapp,contact_emails,contact_address,contact_map_url,contact_hours").catch(() => []),
         S.rest("locations?select=id,name,area_label,description,address_lines,city,state,postal_code,map_url,latitude,longitude&is_active=eq.true&order=sort_order.asc,name.asc").catch(() => []),
       ]);
@@ -143,6 +145,21 @@
   // Locations that actually have rooms on the site
   const usedLocations = () => state.locations.filter((l) => state.rooms.some((r) => r.location_id === l.id));
 
+  // ---- Photos & videos (arranged in admin → Rooms; the first one is the cover) ----
+  const roomMedia = (r) => (r && Array.isArray(r.media) ? r.media : [])
+    .filter((m) => m && (m.type === "image" || m.type === "video") && S.safeUrl(m.url));
+  function coverHTML(r) {
+    const items = roomMedia(r), first = items[0];
+    const inner = first && first.type === "video"
+      ? `<video src="${S.esc(S.safeUrl(first.url))}#t=0.1" preload="metadata" muted playsinline aria-hidden="true"></video><span class="room-play">${S.icon("play")}</span>`
+      : `<img src="${S.esc(first ? S.safeUrl(first.url) : S.safeUrl(r.image_url, "images/placeholder-room.svg"))}" alt="${S.esc(r.name)}" loading="lazy" />`;
+    if (!items.length) return `<div class="room-media">${inner}</div>`;
+    const photos = items.filter((m) => m.type === "image").length, videos = items.length - photos;
+    const label = [photos ? S.plural(photos, "photo") : "", videos ? S.plural(videos, "video") : ""].filter(Boolean).join(" · ");
+    return `<button type="button" class="room-media room-media-btn" data-action="gallery" data-room="${S.esc(r.id)}" aria-label="${S.esc(`See ${label} of ${r.name}`)}">
+        ${inner}<span class="room-media-count">${S.esc(label)}</span></button>`;
+  }
+
   function priceLine(r) {
     if (!r.price_per_night) return `<p class="room-price muted">Price on request</p>`;
     if (r.weekend_price && r.weekend_price !== r.price_per_night) {
@@ -151,35 +168,126 @@
     return `<p class="room-price">${S.inrRupees(r.price_per_night)} <span>/ night</span></p>`;
   }
 
+  // ---- Location finder: guests search by place, then pick a place ----
+  // Accents and case are ignored; every word typed must appear somewhere in the
+  // location's name, area, address, city, state, PIN code or description.
+  const norm = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const placeText = (l) => norm([l.name, l.area_label, ...(l.address_lines || []), l.city, l.state, l.postal_code, l.description].filter(Boolean).join(" "));
+  const searchWords = () => norm(state.locQuery).split(/[\s,]+/).filter(Boolean);
+  function matchingLocations(locs) {
+    const words = searchWords();
+    return words.length ? locs.filter((l) => { const t = placeText(l); return words.every((w) => t.includes(w)); }) : locs;
+  }
+
+  // ---- Price filters ----
+  // The price range is compared with each stay's lowest nightly rate, or with its weekend
+  // rate when the guest picks "Special weekend price". Price-on-request stays have no price,
+  // so they drop out while a price range is set.
+  const hasWeekendRate = (r) => !!r.price_per_night && !!r.weekend_price && r.weekend_price !== r.price_per_night;
+  const filtersOn = () => state.filters.min !== null || state.filters.max !== null || !!state.filters.weekend;
+  function passesFilters(r) {
+    const f = state.filters;
+    if (f.weekend === "special" && !hasWeekendRate(r)) return false;
+    if (f.weekend === "same" && (!r.price_per_night || hasWeekendRate(r))) return false;
+    if (f.min === null && f.max === null) return true;
+    if (!r.price_per_night) return false;
+    const price = f.weekend === "special" ? r.weekend_price : Math.min(r.price_per_night, r.weekend_price || r.price_per_night);
+    const lo = f.min !== null && f.max !== null ? Math.min(f.min, f.max) : f.min;   // min/max typed the wrong way round still works
+    const hi = f.min !== null && f.max !== null ? Math.max(f.min, f.max) : f.max;
+    return (lo === null || price >= lo) && (hi === null || price <= hi);
+  }
+  function renderFilterBar() {
+    const priced = state.rooms.some((r) => r.price_per_night);
+    $("#stay-filters").hidden = !priced;                       // nothing to filter when every stay is price on request
+    $("#sf-weekend-field").hidden = !state.rooms.some(hasWeekendRate) && !state.filters.weekend;
+    const what = state.filters.weekend === "special" ? "weekend price per night" : "price per night";
+    $("#sf-price-label").textContent = what.charAt(0).toUpperCase() + what.slice(1);
+    $("#sf-min-name").textContent = `Lowest ${what}`;
+    $("#sf-max-name").textContent = `Highest ${what}`;
+    $(".sf-clear").hidden = !filtersOn();
+  }
+
+  let shownRooms = null;   // what #rooms currently shows, so typing doesn't re-draw (and flicker) the same cards
   function renderRooms() {
     if (!state.rooms.length) {
+      $("#loc-finder").hidden = true;
       $("#loc-tabs").innerHTML = $("#loc-intro").innerHTML = "";
       $("#rooms").innerHTML = `<p class="rooms-msg">No rooms are open for booking right now. Please contact us.</p>`;
+      shownRooms = null;
       return;
     }
     const locs = usedLocations();
-    if (state.locFilter && !locs.some((l) => l.id === state.locFilter)) state.locFilter = "";
-    // Location tabs — only when stays exist in more than one place
-    $("#loc-tabs").innerHTML = locs.length > 1 ? `<div class="loc-tabs" role="tablist" aria-label="Locations">
-        <button type="button" role="tab" class="loc-tab${state.locFilter ? "" : " active"}" aria-selected="${!state.locFilter}" data-action="loc" data-loc="">All stays <span>${state.rooms.length}</span></button>
-        ${locs.map((l) => `<button type="button" role="tab" class="loc-tab${state.locFilter === l.id ? " active" : ""}" aria-selected="${state.locFilter === l.id}" data-action="loc" data-loc="${S.esc(l.id)}">${S.esc(l.name)} <span>${state.rooms.filter((r) => r.location_id === l.id).length}</span></button>`).join("")}
-      </div>` : "";
-    const focus = state.locFilter ? locById(state.locFilter) : locs.length === 1 ? locs[0] : null;
+    const multi = locs.length > 1;
+    const searching = searchWords().length > 0;
+    const found = matchingLocations(locs);
+    if (state.locFilter && !found.some((l) => l.id === state.locFilter)) state.locFilter = "";
+    renderFilterBar();
+    const roomsIn = (id) => state.rooms.filter((r) => r.location_id === id && passesFilters(r)).length;
+    const searched = searching ? state.rooms.filter((r) => found.some((l) => l.id === r.location_id)) : state.rooms;
+
+    // Place buttons: "All stays" (when there's a choice) + every place that matches the search
+    $("#loc-finder").hidden = !locs.length;
+    $(".loc-clear").hidden = !state.locQuery;
+    const chip = (id, label, count, active) =>
+      `<button type="button" class="loc-tab${active ? " active" : ""}" aria-pressed="${active}" data-action="loc" data-loc="${S.esc(id)}">${S.esc(label)} <span>${count}</span></button>`;
+    const allActive = !state.locFilter;
+    const chips = [
+      ...(multi && found.length > 1 ? [chip("", searching ? "All matches" : "All stays", searched.filter(passesFilters).length, allActive)] : []),
+      ...found.map((l) => chip(l.id, l.name, roomsIn(l.id), state.locFilter === l.id || found.length === 1)),
+    ];
+    $("#loc-tabs").innerHTML = chips.length ? `<div class="loc-tabs" role="group" aria-label="Location"><span class="loc-label" aria-hidden="true">Location</span>${chips.join("")}</div>` : "";
+    $("#loc-tabs").hidden = !chips.length;
+
+    const focus = state.locFilter ? locById(state.locFilter) : found.length === 1 ? found[0] : null;
+    const inPlace = state.locFilter ? state.rooms.filter((r) => r.location_id === state.locFilter) : searched;
+    const list = inPlace.filter(passesFilters);
+    const filteredOut = !list.length && inPlace.length > 0;   // the place has stays, the filters hide them
+
+    // "3 stays in 2 places" — shown when there's something to choose between, or a search
+    const status = $("#loc-status");
+    const places = new Set(list.map((r) => r.location_id).filter(Boolean)).size;
+    status.textContent = filteredOut ? "No stays match these filters."
+      : !list.length ? `No stays found for “${state.locQuery.trim()}”.`
+      : focus ? `${S.plural(list.length, "stay")} in ${focus.name}`
+      : `${S.plural(list.length, "stay")} in ${S.plural(places, "place")}`;
+    status.hidden = !(searching || multi || filtersOn());
+    status.classList.toggle("sr-only", !list.length);   // the message below says it visibly; screen readers still hear it
+
     $("#loc-intro").innerHTML = focus ? `<div class="loc-intro">
         <h3>${S.esc(focus.name)}${focus.area_label ? ` <span>· ${S.esc(focus.area_label)}</span>` : ""}</h3>
         ${focus.description ? `<p>${S.esc(focus.description)}</p>` : ""}
         <p class="muted">${S.esc([...(focus.address_lines || []), focus.state].filter(Boolean).join(", "))}${S.safeUrl(focus.map_url) ? ` · <a href="${S.esc(S.safeUrl(focus.map_url))}" target="_blank" rel="noopener">Map ↗</a>` : ""}</p>
       </div>` : "";
 
-    const list = state.locFilter ? state.rooms.filter((r) => r.location_id === state.locFilter) : state.rooms;
-    const fallback = "images/placeholder-room.svg";
+    // Remember what a chosen place / search is showing, so "Book now" can offer just those rooms.
+    state.shownRoomIds = (state.locFilter || searching || filtersOn()) && list.length ? list.map((r) => r.id) : null;
+
+    const key = list.length ? `${multi}|${list.map((r) => r.id).join(",")}` : filteredOut ? "none|filters" : `none|${state.locQuery}`;
+    if (key === shownRooms) return;
+    shownRooms = key;
+    if (filteredOut) {
+      $("#rooms").innerHTML = `<div class="rooms-msg rooms-empty">
+        <p>No stays match these filters${state.locFilter && focus ? ` in ${S.esc(focus.name)}` : ""}.</p>
+        <p><button type="button" class="btn btn-quiet btn-sm" data-action="filters-clear">Clear filters</button></p>
+      </div>`;
+      return;
+    }
+    if (!list.length) {
+      const phone = S.contact().phones[0];
+      $("#rooms").innerHTML = `<div class="rooms-msg rooms-empty">
+        <p>We don't have a stay matching “${S.esc(state.locQuery.trim())}” yet.</p>
+        <p><button type="button" class="btn btn-quiet btn-sm" data-action="loc-all">Show all stays</button></p>
+        ${phone ? `<p>Looking for somewhere else? Call <a href="${S.esc(S.telHref(phone))}">${S.esc(phone)}</a> and tell us where.</p>` : ""}
+      </div>`;
+      return;
+    }
     $("#rooms").innerHTML = list.map((r) => {
       const loc = locById(r.location_id);
       return `
       <article class="room-card">
-        <div class="room-media"><img src="${S.esc(S.safeUrl(r.image_url, fallback))}" alt="${S.esc(r.name)}" loading="lazy" /></div>
+        ${coverHTML(r)}
         <div class="room-body">
-          ${loc && locs.length > 1 ? `<p class="room-loc">📍 ${S.esc(S.locationLine(loc))}</p>` : ""}
+          ${loc && locs.length > 1 ? `<p class="room-loc">${S.icon("pin", "icon icon-sm")}${S.esc(S.locationLine(loc))}</p>` : ""}
           <div class="room-head"><h3>${S.esc(r.name)}</h3>${r.capacity_label ? `<span class="pill">${S.esc(r.capacity_label)}</span>` : ""}</div>
           ${priceLine(r)}
           ${r.description ? `<p class="room-desc">${S.esc(r.description)}</p>` : ""}
@@ -198,12 +306,18 @@
     resetForm();
     $("#booking").hidden = false;
     document.body.classList.add("modal-open");
-    renderRoomOptions();
-    if (roomId && state.rooms.some((r) => r.id === roomId)) selectRoom(roomId);
-    else if (state.rooms.length === 1) selectRoom(state.rooms[0].id);
-    else renderCalendar();
+    // Start on the room the guest clicked. Otherwise use what "Our stays" is showing
+    // (a chosen place or a search): one room → that room, several → only those in the list.
+    const shown = state.shownRoomIds;
+    const start = roomId && state.rooms.some((r) => r.id === roomId) ? roomId
+      : shown && shown.length === 1 ? shown[0]
+      : state.rooms.length === 1 ? state.rooms[0].id : null;
+    state.roomScope = !start && shown && shown.length > 1 ? shown : null;
+    state.showPicker = !start;
+    if (start) selectRoom(start);
+    else { renderRoomOptions(); renderCalendar(); }
     setupCaptcha();
-    setTimeout(() => ($(".room-option.selected") || $(".room-option") || $(".modal-close")).focus(), 30);
+    setTimeout(() => ($(".room-chosen") || $(".room-option.selected") || $(".room-option") || $(".modal-close")).focus(), 30);
   }
 
   function closeBooking() {
@@ -225,23 +339,57 @@
     renderSteppers(); renderQuote(); renderButtons();
   }
 
+  const roomThumb = (r) => `<span class="ro-thumb" style="background-image:${S.esc(S.cssUrl(S.safeUrl(r.image_url, "images/placeholder-room.svg")))}"></span>`;
+  const roomFacts = (r) => `${S.esc(r.capacity_label || "")}${r.price_per_night ? ` · from ${S.inrRupees(Math.min(r.price_per_night, r.weekend_price || r.price_per_night))}/night` : " · price on request"}`;
+
+  // Step 1 of the dialog: either the chosen room on its own (with "Change"), or the list of rooms.
   function renderRoomOptions() {
+    const box = $("#bk-rooms");
     if (!state.rooms.length) {
-      $("#bk-rooms").innerHTML = `<p class="cal-msg">Rooms couldn't be loaded. Please contact us to book.</p>`;
+      $("#bk-room-label").textContent = "1 · Choose a room";
+      box.innerHTML = `<p class="cal-msg">Rooms couldn't be loaded. Please contact us to book.</p>`;
       return;
     }
+    const chosen = room();
+    if (chosen && !state.showPicker) {
+      const loc = locById(chosen.location_id);
+      $("#bk-room-label").textContent = "1 · Your room";
+      box.removeAttribute("role"); box.removeAttribute("aria-label");
+      box.innerHTML = `<div class="room-chosen" tabindex="-1">
+          ${roomThumb(chosen)}
+          <span class="ro-text"><b>${S.esc(chosen.name)}</b>${loc ? `<small class="ro-loc">${S.icon("pin", "icon icon-sm")}${S.esc(S.locationLine(loc))}</small>` : ""}<small>${roomFacts(chosen)}</small></span>
+          ${state.rooms.length > 1 ? `<button type="button" class="ro-change" data-action="room-change" aria-label="Change room (now ${S.esc(chosen.name)})">Change</button>` : ""}
+        </div>`;
+      return;
+    }
+    $("#bk-room-label").textContent = "1 · Choose a room";
+    box.setAttribute("role", "radiogroup"); box.setAttribute("aria-label", "Room");
+    const list = state.roomScope ? state.rooms.filter((r) => state.roomScope.includes(r.id)) : state.rooms;
     const multi = usedLocations().length > 1;
     let lastLoc = null;
-    $("#bk-rooms").innerHTML = state.rooms.map((r) => {
-      const head = multi && r.location_id !== lastLoc ? `<div class="ro-group">📍 ${S.esc(S.locationLine(locById(r.location_id)) || "Other")}</div>` : "";
+    box.innerHTML = list.map((r) => {
+      const head = multi && r.location_id !== lastLoc ? `<div class="ro-group">${S.icon("pin", "icon icon-sm")}${S.esc(S.locationLine(locById(r.location_id)) || "Other")}</div>` : "";
       lastLoc = r.location_id;
       return `${head}
       <button type="button" class="room-option${r.id === state.roomId ? " selected" : ""}" role="radio" aria-checked="${r.id === state.roomId}" data-action="room" data-room="${S.esc(r.id)}">
-        <span class="ro-thumb" style="background-image:${S.esc(S.cssUrl(S.safeUrl(r.image_url, "images/placeholder-room.svg")))}"></span>
-        <span class="ro-text"><b>${S.esc(r.name)}</b><small>${S.esc(r.capacity_label || "")}${r.price_per_night ? ` · from ${S.inrRupees(Math.min(r.price_per_night, r.weekend_price || r.price_per_night))}/night` : " · price on request"}</small></span>
+        ${roomThumb(r)}
+        <span class="ro-text"><b>${S.esc(r.name)}</b><small>${roomFacts(r)}</small></span>
         <span class="ro-dot" aria-hidden="true"></span>
       </button>`;
-    }).join("");
+    }).join("") + (state.roomScope ? `<button type="button" class="ro-all" data-action="room-all">Show all ${state.rooms.length} rooms</button>` : "");
+  }
+
+  // A room picked from the list: show just that room again (dates are kept if it's the same room).
+  function chooseRoom(id) {
+    state.showPicker = false;
+    if (id === state.roomId) renderRoomOptions(); else selectRoom(id);
+    const c = $(".room-chosen"); if (c) c.focus();
+  }
+  function openRoomList(all) {
+    state.showPicker = true;
+    if (all) state.roomScope = null;
+    renderRoomOptions();
+    const f = $(".room-option.selected") || $(".room-option"); if (f) f.focus();
   }
 
   async function selectRoom(id) {
@@ -547,7 +695,7 @@
     $("#bk-form").hidden = true;
     const done = $("#bk-done");
     done.hidden = false;
-    done.innerHTML = `<p class="done-icon" aria-hidden="true">⏳</p><p class="done-title">Confirming your payment…</p><p class="muted">Please don't close this window.</p>`;
+    done.innerHTML = `<p class="done-icon">${S.icon("clock")}</p><p class="done-title">Confirming your payment…</p><p class="muted">Please don't close this window.</p>`;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const r = await S.bookingApi("verify", {
@@ -572,7 +720,7 @@
     const stay = `${S.esc(b.room_name)}${b.num_units > 1 ? ` × ${b.num_units}` : ""}${b.location_name ? `, ${S.esc(b.location_name)}` : ""} · ${S.esc(S.fmtDate(b.check_in))} → ${S.esc(S.fmtDate(b.check_out))} · ${S.plural(nights, "night")}`;
     const email = CFG.emailConfirmations ? ` A confirmation email is on its way to <b>${S.esc(b.guest_email)}</b>.` : "";
     const phone = S.contact().phones[0] || "";
-    let icon = "🌿", title = "", body = "", download = "";
+    let icon = "check", title = "", body = "", download = "";
 
     if (b.status === "confirmed" && b.payment_status === "paid") {
       title = "Booking confirmed!";
@@ -581,27 +729,27 @@
         <dl class="done-list"><dt>Booking ref</dt><dd>${S.esc(b.ref)}</dd><dt>Stay</dt><dd>${stay}</dd><dt>Paid</dt><dd>${S.inr(b.total_paise)}</dd><dt>Invoice</dt><dd>${S.esc(b.invoice_no || "—")}</dd></dl>`;
       download = "Download invoice (PDF)";
     } else if (b.payment_status === "paid" && b.needs_attention) {
-      icon = "⚠️"; title = "Payment received — we'll be in touch";
+      icon = "alert"; title = "Payment received — we'll be in touch";
       body = `<p>We received your payment, but the reservation timed out before it completed and the room was booked in the meantime. We're very sorry. We'll contact you shortly to offer other dates or a full refund.</p>
         <dl class="done-list"><dt>Booking ref</dt><dd>${S.esc(b.ref)}</dd><dt>Payment ID</dt><dd>${S.esc(b.razorpay_payment_id)}</dd></dl>`;
     } else if (b.status === "pending_confirmation") {
-      icon = "✅"; title = "Payment received";
+      icon = "check"; title = "Payment received";
       body = `<p>Your payment went through. We're finishing the confirmation — it usually completes automatically within a few minutes.${email}</p>
         <dl class="done-list"><dt>Booking ref</dt><dd>${S.esc(b.ref)}</dd><dt>Payment ID</dt><dd>${S.esc(b.razorpay_payment_id)}</dd><dt>Stay</dt><dd>${stay}</dd></dl>
         <p class="muted">Keep the payment ID. If you don't hear from us within a day${phone ? `, call ${S.esc(phone)}` : ", contact us"}.</p>`;
     } else if (b.source === "inquiry") {
-      title = "Inquiry sent";
+      icon = "mail"; title = "Inquiry sent";
       $("#bk-title").textContent = "Thank you";
       body = `<p>Thank you, ${S.esc(b.guest_name)}. We'll reply with pricing and availability for:</p><p><b>${stay}</b></p><p class="muted">No payment needed now. These dates are not held until we confirm.${email}</p>
         <dl class="done-list"><dt>Reference</dt><dd>${S.esc(b.ref)}</dd></dl>`;
     } else {
-      title = "Request received";
+      icon = "clock"; title = "Request received";
       $("#bk-title").textContent = "Thank you";
       body = `<p>Thank you, ${S.esc(b.guest_name)}. We're holding these dates for you until <b>${S.esc(S.fmtDateTime(b.hold_expires_at))}</b> and will contact you to confirm.${email}</p>
         <dl class="done-list"><dt>Booking ref</dt><dd>${S.esc(b.ref)}</dd><dt>Stay</dt><dd>${stay}</dd><dt>Due on arrival</dt><dd>${S.inr(b.total_paise)}</dd></dl>`;
       download = "Download booking summary (PDF)";
     }
-    el.innerHTML = `<p class="done-icon" aria-hidden="true">${icon}</p><p class="done-title">${S.esc(title)}</p>${body}
+    el.innerHTML = `<p class="done-icon done-${icon}">${S.icon(icon)}</p><p class="done-title">${S.esc(title)}</p>${body}
       ${download ? `<button type="button" class="btn btn-full" data-action="download">${download}</button>` : ""}
       <button type="button" class="btn btn-full btn-quiet" data-action="close">Done</button>`;
     $(".modal-close").disabled = false;
@@ -632,12 +780,22 @@
     const el = e.target.closest("[data-action]");
     if (!el || el.disabled) return;
     const a = el.dataset.action;
-    if (a === "book") { e.preventDefault(); toggleMenu(false); openBooking(el.dataset.room); }
+    if (a === "book") { e.preventDefault(); toggleMenu(false); if (!$("#gallery").hidden) closeGallery(false); openBooking(el.dataset.room); }
+    else if (a === "gallery") openGallery(el.dataset.room, 0);
+    else if (a === "gallery-close") closeGallery();
+    else if (a === "gallery-prev") stepGallery(-1);
+    else if (a === "gallery-next") stepGallery(1);
+    else if (a === "gallery-go") { G.i = Number(el.dataset.i) || 0; showSlide(); }
     else if (a === "close") closeBooking();
     else if (a === "menu") toggleMenu();
     else if (a === "menu-close") toggleMenu(false);
-    else if (a === "room") selectRoom(el.dataset.room);
-    else if (a === "loc") { state.locFilter = el.dataset.loc || ""; renderRooms(); }
+    else if (a === "room") chooseRoom(el.dataset.room);
+    else if (a === "room-change") openRoomList(false);
+    else if (a === "room-all") openRoomList(true);
+    else if (a === "loc") pickLocation(el.dataset.loc || "", document.activeElement === el);
+    else if (a === "loc-clear") clearLocationSearch(false);
+    else if (a === "loc-all") clearLocationSearch(true);
+    else if (a === "filters-clear") { clearFilters(); renderRooms(); $("#sf-min").focus(); }
     else if (a === "day") pickDay(el.dataset.date);
     else if (a === "cal-prev") calNav(-1);
     else if (a === "cal-next") calNav(1);
@@ -653,7 +811,98 @@
 
   $("#booking").addEventListener("click", (e) => { if (e.target.id === "booking") closeBooking(); });
 
+  // ---------- photo & video gallery ----------
+  const G = { roomId: null, i: 0, returnFocus: null, touchX: null };
+  const galleryItems = () => roomMedia(state.rooms.find((r) => r.id === G.roomId));
+  function openGallery(roomId, i) {
+    const r = state.rooms.find((x) => x.id === roomId);
+    if (!roomMedia(r).length) return;
+    Object.assign(G, { roomId, i: i || 0, returnFocus: document.activeElement });
+    $("#gl-title").textContent = r.name;
+    $("#gl-book").dataset.room = r.id;
+    $("#gl-book").textContent = r.price_per_night ? "Book this room" : "Ask about this room";
+    $("#gallery").hidden = false;
+    document.body.classList.add("modal-open");
+    showSlide();
+    $(".gallery-close").focus();
+  }
+  function showSlide() {
+    const items = galleryItems(), r = state.rooms.find((x) => x.id === G.roomId);
+    if (!items.length) return;
+    G.i = (G.i + items.length) % items.length;
+    const m = items[G.i], url = S.esc(S.safeUrl(m.url));
+    $("#gl-stage").innerHTML = m.type === "video"
+      ? `<video src="${url}" controls playsinline preload="metadata" aria-label="${S.esc(`${r.name}: video ${G.i + 1} of ${items.length}`)}"></video>`
+      : `<img src="${url}" alt="${S.esc(`${r.name}: photo ${G.i + 1} of ${items.length}`)}" />`;
+    $("#gl-count").textContent = `${G.i + 1} / ${items.length}`;
+    $$(".gallery-nav").forEach((b) => { b.hidden = items.length < 2; });
+    $("#gl-thumbs").hidden = items.length < 2;
+    $("#gl-thumbs").innerHTML = items.map((x, i) => `<button type="button" class="gl-thumb${i === G.i ? " active" : ""}" data-action="gallery-go" data-i="${i}"
+        aria-label="${S.esc(`${x.type === "video" ? "Video" : "Photo"} ${i + 1}`)}"${i === G.i ? ' aria-current="true"' : ""}>
+        ${x.type === "video" ? S.icon("play") : `<img src="${S.esc(S.safeUrl(x.url))}" alt="" loading="lazy" />`}</button>`).join("");
+  }
+  function stepGallery(d) { G.i += d; showSlide(); }
+  function closeGallery(restoreFocus = true) {
+    $("#gl-stage").innerHTML = "";   // stops any playing video
+    $("#gallery").hidden = true;
+    if ($("#booking").hidden) document.body.classList.remove("modal-open");
+    if (restoreFocus && G.returnFocus && G.returnFocus.focus) G.returnFocus.focus();
+  }
+  function galleryKey(e) {
+    if (e.key === "Escape") { e.preventDefault(); closeGallery(); }
+    else if (e.key === "ArrowLeft" && e.target.tagName !== "VIDEO") stepGallery(-1);
+    else if (e.key === "ArrowRight" && e.target.tagName !== "VIDEO") stepGallery(1);
+    else if (e.key === "Tab") {   // keep focus inside the gallery
+      const f = $$("#gallery button, #gallery video").filter((x) => x.offsetParent !== null && !x.disabled);
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    }
+  }
+  $("#gallery").addEventListener("click", (e) => { if (e.target.id === "gallery") closeGallery(); });
+  $("#gl-stage").addEventListener("touchstart", (e) => { G.touchX = e.touches[0].clientX; }, { passive: true });
+  $("#gl-stage").addEventListener("touchend", (e) => {
+    if (G.touchX === null) return;
+    const dx = e.changedTouches[0].clientX - G.touchX;
+    G.touchX = null;
+    if (Math.abs(dx) > 50) stepGallery(dx < 0 ? 1 : -1);   // swipe
+  });
+
+  // ---------- location finder ----------
+  function pickLocation(id, keepFocus) {
+    state.locFilter = id;
+    renderRooms();
+    // The buttons are re-drawn, so put keyboard focus back on the one just pressed.
+    if (keepFocus) { const b = $$("#loc-tabs .loc-tab").find((x) => x.dataset.loc === id); if (b) b.focus(); }
+  }
+  function clearFilters() {
+    Object.assign(state.filters, { min: null, max: null, weekend: "" });
+    $("#sf-min").value = $("#sf-max").value = $("#sf-weekend").value = "";
+  }
+  const readMoney = (input) => {
+    const v = input.value.trim();
+    const n = v === "" ? NaN : Math.floor(Number(v));
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  $("#sf-min").addEventListener("input", (e) => { state.filters.min = readMoney(e.target); renderRooms(); });
+  $("#sf-max").addEventListener("input", (e) => { state.filters.max = readMoney(e.target); renderRooms(); });
+  $("#sf-weekend").addEventListener("change", (e) => { state.filters.weekend = e.target.value; renderRooms(); });
+  function clearLocationSearch(showAll) {
+    state.locQuery = "";
+    $("#loc-q").value = "";
+    if (showAll) { state.locFilter = ""; clearFilters(); }
+    renderRooms();
+    $("#loc-q").focus();
+  }
+  $("#loc-q").addEventListener("input", (e) => { state.locQuery = e.target.value.slice(0, 60); renderRooms(); });
+  $("#loc-q").addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && e.target.value) { e.preventDefault(); e.stopPropagation(); clearLocationSearch(false); }
+    // Enter / the phone keyboard's search key: close the keyboard and jump to the results
+    if (e.key === "Enter") { e.preventDefault(); if ($("#rooms .room-card")) { e.target.blur(); $("#rooms").scrollIntoView({ block: "start" }); } }
+  });
+
   document.addEventListener("keydown", (e) => {
+    if (!$("#gallery").hidden) { galleryKey(e); return; }
     if ($("#booking").hidden) { if (e.key === "Escape") toggleMenu(false); return; }
     if (e.key === "Escape") { closeBooking(); return; }
     if (e.key === "Tab") {   // keep focus inside the dialog
