@@ -267,5 +267,35 @@ const hv = (await one(`select public.admin_create_booking('hill-villa', $1, $2, 
 ok(hv.status === "confirmed" && hv.location_name === "Goa Hills", "admin can still block dates there");
 ok(/foreign key|violates/.test(await err(`delete from public.locations where id = 'goa-hills'`)), "a location with rooms can't be deleted");
 
+console.log("photos & videos");
+const MB = 1048576;
+const item = (type, name, size) => ({ type, url: `https://proj.supabase.co/storage/v1/object/public/room-images/${name}`, path: name, size });
+const setMedia = (arr) => db.query(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify(arr)]);
+await as("authenticated", ADMIN);
+await setMedia([item("video", "garden-tour.mp4", 300 * MB), item("image", "garden-1.jpg", 4 * MB), item("image", "garden-2.jpg", 3 * MB)]);
+let gr = await one(`select media, image_url from public.rooms where id = 'garden-room'`);
+ok(gr.media.length === 3 && gr.image_url.endsWith("/garden-1.jpg"), "admin saves photos + a video in order; cover photo = first photo in the list", gr.image_url);
+await setMedia([item("image", "garden-2.jpg", 3 * MB), item("video", "garden-tour.mp4", 300 * MB)]);
+ok((await one(`select image_url from public.rooms where id = 'garden-room'`)).image_url.endsWith("/garden-2.jpg"), "re-ordering changes the cover photo");
+ok(/media_too_big/.test(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify([item("video", "a.mp4", 300 * MB), item("video", "b.mp4", 201 * MB)])])), "more than 500 MB in total for one stay is refused");
+ok(!(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify([item("video", "a.mp4", 300 * MB), item("video", "b.mp4", 200 * MB)])])), "exactly 500 MB in total is allowed");
+ok(/check constraint/.test(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify([item("image", "huge.jpg", 21 * MB)])])), "a photo over 20 MB is refused");
+ok(/check constraint/.test(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify([{ ...item("image", "x.jpg", 1), url: "javascript:alert(1)" }])])), "a non-https link is refused");
+ok(/check constraint/.test(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify([{ ...item("image", "x.jpg", 1), type: "pdf" }])])), "only photos and videos are accepted");
+ok(/check constraint/.test(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify([{ ...item("image", "x.jpg", 1), path: "../other.jpg" }])])), "file names with paths are refused");
+ok(/check constraint/.test(await err(`update public.rooms set media = $1::jsonb where id = 'garden-room'`, [JSON.stringify(Array.from({ length: 41 }, (_, i) => item("image", `p${i}.jpg`, 1)))])), "more than 40 items is refused");
+await setMedia([item("video", "garden-tour.mp4", 300 * MB)]);
+ok((await one(`select image_url from public.rooms where id = 'garden-room'`)).image_url === null, "a stay with only videos has no cover photo (the site shows the video)");
+await setMedia([]);
+ok((await one(`select media, image_url from public.rooms where id = 'garden-room'`)).image_url === null, "removing everything clears the cover photo");
+await as("anon");
+ok(/permission denied/.test(await err(`update public.rooms set media = '[]'::jsonb where id = 'cottage'`)), "the public can't change photos or videos");
+await as("authenticated", USER);
+await db.query(`update public.rooms set media = $1::jsonb where id = 'cottage'`, [JSON.stringify([item("image", "evil.jpg", 1)])]);
+await as("postgres");
+ok((await one(`select media from public.rooms where id = 'cottage'`)).media.length === 0, "a signed-in non-admin can't change them either (RLS)");
+const bucket = await one(`select file_size_limit, allowed_mime_types from storage.buckets where id = 'room-images'`);
+ok(Number(bucket.file_size_limit) === 500 * MB && bucket.allowed_mime_types.includes("video/mp4") && bucket.allowed_mime_types.includes("image/jpeg"), "storage bucket takes files up to 500 MB, photos and videos");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

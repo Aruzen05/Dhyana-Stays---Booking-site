@@ -1,13 +1,14 @@
 {
   "name": "stay-template-tests",
   "private": true,
-  "description": "Optional automated tests. Not part of the website — nothing here is deployed.",
+  "description": "Optional automated tests and a local test server. Not part of the website — nothing here is deployed.",
   "type": "module",
   "scripts": {
     "test": "npm run test:db && npm run test:fn && npm run test:ui",
     "test:db": "node db.test.mjs . ../supabase/setup.sql",
     "test:fn": "node fn.test.mjs . ../supabase/setup.sql ../supabase/functions/booking-api/index.ts",
-    "test:ui": "node ui.test.mjs . .."
+    "test:ui": "node ui.test.mjs . ..",
+    "local": "node local/server.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.15",
